@@ -2,104 +2,257 @@
 
 生效日期 / Effective date: 2026-07-31
 
-本说明适用于 Na Craft Launcher（NaCL）当前公开开发版本。NaCL 仍处于 Pre-alpha 阶段；Microsoft 登录和完整游戏启动流程尚未发布。
+适用版本 / Applies to: NaCL public Pre-alpha source and locally built development versions
 
-This notice applies to the current public development version of Na Craft Launcher (NaCL). NaCL is still in Pre-alpha; Microsoft sign-in and the complete game launch flow have not been released.
+本说明用于公开 Na Craft Launcher（NaCL）当前及计划中的数据处理边界。NaCL 是本地桌面应用，目前没有由项目维护者运营的账号、同步、遥测、广告或日志收集服务器。
+
+This notice describes the current and planned data-handling boundaries of Na Craft Launcher (NaCL). NaCL is a local desktop application. The maintainers currently operate no account, synchronization, telemetry, advertising, or log-collection server.
+
+> [!IMPORTANT]
+> Microsoft 登录和完整游戏启动流程尚未发布。文中标记为“计划”的令牌处理方式是实现承诺，不代表当前版本已经保存或使用 Microsoft 令牌。
+>
+> Microsoft sign-in and the complete game launch flow have not been released. Token handling marked as “planned” is an implementation commitment, not a claim that the current version already stores or uses Microsoft tokens.
 
 ## 中文
 
-### 1. 本地处理的数据
+### 1. 适用范围与角色
 
-NaCL 为实现启动器功能，会在用户的 Windows 设备上读取或保存以下数据：
+本说明适用于从本仓库构建的 NaCL 桌面应用，不替代 Microsoft、Mojang、Minecraft、Eclipse Foundation、GitHub 或下载托管方各自的隐私政策。
 
-- 启动器设置、实例元数据与实例游戏目录，默认位于 `%APPDATA%\NaCL`
-- 版本清单缓存、游戏资源、依赖库、下载文件、托管 Java 运行环境与本地日志，默认位于 `%LOCALAPPDATA%\NaCL`
-- 用户主动选择的 Java 路径，以及用于推荐内存分配的系统物理内存信息
-- 用户主动创建的离线档案名称；离线档案不会验证 Minecraft 所有权
+在当前版本中：
 
-这些数据用于本地功能，不会由 NaCL 自动上传到项目维护者控制的服务器。
+- NaCL 维护者不接收应用内账号注册信息，因为项目没有自建账号系统
+- NaCL 维护者不自动接收本地设置、实例、日志、Java 路径或诊断信息
+- 当用户主动访问第三方服务时，相应服务提供方会按照其自身政策处理网络请求
+- 用户主动在 GitHub 提交 Issue、日志或截图时，GitHub 和项目维护者会收到用户选择公开的内容
 
-### 2. 网络请求
+### 2. 本地数据清单
 
-在用户刷新版本、安装实例或下载 Java 时，NaCL 可能直接连接：
+| 数据类别 | 具体内容 | 用途 | 默认位置 | 保留方式 |
+| --- | --- | --- | --- | --- |
+| 启动器设置 | 主题、默认实例、Java 选择、内存和界面相关设置 | 恢复用户偏好 | `%APPDATA%\NaCL\config` | 保留到用户修改或删除 |
+| 下载设置 | 并发数、重试次数、超时、限速和校验设置 | 控制下载行为 | `%APPDATA%\NaCL\config` | 保留到用户修改或删除 |
+| 实例元数据 | 实例名称、Minecraft 版本、内存、显示和高级参数 | 管理隔离实例 | `%APPDATA%\NaCL\instances\<instance-id>` | 保留到用户删除实例 |
+| 实例游戏目录 | 存档、截图、配置及未来启动后由游戏生成的数据 | 提供实例隔离 | `%APPDATA%\NaCL\instances\<instance-id>\game` | 保留到用户删除或迁移 |
+| 版本与资源缓存 | 版本清单、版本 JSON、客户端、依赖库、资源索引和资源对象 | 安装与校验原版文件 | `%LOCALAPPDATA%\NaCL\cache` | 保留到用户清理或删除 |
+| 托管 Java | 下载的 Eclipse Temurin JRE 及运行时信息 | 为对应游戏版本提供 Java | `%LOCALAPPDATA%\NaCL\runtimes` | 保留到用户清理或删除 |
+| 临时下载 | 下载中的 `.part` 文件及安装中间文件 | 支持下载重试和原子替换 | `%LOCALAPPDATA%\NaCL\cache\downloads` | 完成后移除；失败文件可由用户清理 |
+| 本地日志 | 启动器运行、下载、安装或错误诊断文本 | 用户本地排错 | `%LOCALAPPDATA%\NaCL\logs` | 按用户设置的保留期或手动删除 |
+| 系统诊断 | 操作系统类型、CPU 架构、物理内存和目录占用等运行环境信息 | Java 选择、内存建议和本地诊断 | 运行时读取；报告默认不上传 | 仅在功能需要时读取 |
+| 手动选择的文件路径 | Java 可执行文件路径、用户主动打开或选择的目录 | 使用指定运行环境或打开本地位置 | 写入对应本地设置时保留 | 保留到用户修改或删除 |
 
-- Mojang/Minecraft 官方服务，用于获取版本清单、版本元数据、游戏客户端、资源文件和依赖库
-- Eclipse Adoptium API 及其下载地址，用于查询和下载 Eclipse Temurin Java 运行环境
+NaCL 不会主动扫描用户的文档、浏览器数据、密码库、通讯录或与启动器无关的文件。实例目录中的 Minecraft 存档和截图只作为本地文件存在，当前不会自动上传。
 
-这些服务可能按照各自的隐私政策处理 IP 地址、请求时间和常规网络元数据。NaCL 当前没有自建账号服务器、遥测服务器或广告服务。
+### 3. 网络请求与第三方服务
 
-### 3. Microsoft 登录
+联网操作由用户触发的版本刷新、实例安装、Java 下载，以及未来的账号登录或游戏启动产生。
 
-Microsoft 登录目前尚未开放。正式实现时，NaCL 将遵循以下原则：
+| 服务或目标 | 触发条件 | 发送或暴露的数据 | 返回内容 |
+| --- | --- | --- | --- |
+| Mojang 版本元数据服务（`piston-meta.mojang.com`） | 刷新版本目录或读取版本元数据 | 常规 HTTPS 请求信息，例如 IP 地址、请求时间、客户端网络信息 | 版本清单和版本 JSON |
+| Minecraft 资源服务（`resources.download.minecraft.net`） | 安装或修复原版资源 | 常规 HTTPS 请求信息和所请求资源的哈希路径 | Minecraft 资源对象 |
+| 版本 JSON 指定的官方文件地址 | 安装原版客户端和依赖库 | 常规 HTTPS 请求信息及所请求文件路径 | 客户端、库文件、原生库和资源索引 |
+| Eclipse Adoptium API（`api.adoptium.net`）及其下载地址 | 用户选择下载托管 Java | Windows 平台、CPU 架构、所需 Java 主版本和常规 HTTPS 请求信息 | Eclipse Temurin JRE 元数据与压缩包 |
+| Microsoft、Xbox 与 Minecraft 身份服务（计划） | 用户未来主动选择 Microsoft 登录、资格校验或启动游戏 | OAuth 所需请求、授权令牌及服务要求的账号或资格信息 | 授权结果、Xbox/Minecraft 服务令牌、资格与档案信息 |
+| GitHub | 用户访问仓库、提交 Issue 或主动上传诊断材料 | 用户自行提交的账号信息、Issue 文本、附件及 GitHub 记录的网络元数据 | 项目源码、Issue 与支持沟通 |
 
-- 通过 Microsoft 官方 OAuth 授权流程登录，不在 NaCL 内要求或收集 Microsoft 密码
-- 仅在用户主动登录、验证 Minecraft Java Edition 资格或启动游戏时使用授权令牌
-- 短期访问令牌仅在必要期间使用；刷新令牌计划使用 Windows 用户级加密保护
-- 不向与登录和 Minecraft 服务无关的第三方出售或共享账号令牌
+NaCL 不会把 Microsoft 令牌、离线档案或本地日志发送到 Eclipse Adoptium；也不会把 Java 下载信息发送给 Mojang。各服务只接收完成对应请求所需的信息。
 
-在功能正式实现前，本节描述的是设计承诺，而不是当前已启用的功能。
+第三方可能根据其政策处理 IP 地址、设备与浏览器信息、请求时间、Cookie 或账号数据。请参阅：
 
-### 4. 遥测、日志与诊断
+- [Microsoft Privacy Statement](https://www.microsoft.com/privacy/privacystatement)
+- [Eclipse Foundation Website Privacy Policy](https://www.eclipse.org/legal/privacy/)
+- [GitHub Privacy Statement](https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement)
 
-当前版本不包含使用分析、广告追踪、崩溃自动上报或后台遥测。诊断日志保存在本地，除非用户自行选择并提交，否则不会发送给项目维护者。
+### 4. Microsoft 登录与令牌设计
 
-通过 GitHub Issue 寻求帮助时，请勿公开粘贴访问令牌、刷新令牌、完整系统用户名或其他敏感信息。
+Microsoft 登录目前未实现。获得 Minecraft Java Edition Game Service API 资格并开始实现后，NaCL 计划遵循以下原则：
 
-### 5. 数据删除与保留
+1. 登录界面由 Microsoft 官方授权页面提供；NaCL 不嵌入仿制密码框，也不要求用户向 NaCL 输入 Microsoft 密码
+2. 使用适合 Windows 公共桌面客户端的 OAuth 授权流程，并采用防止授权码被截获或重放的保护措施
+3. 只请求完成登录、Xbox/Minecraft 身份交换、Minecraft 所有权校验、档案读取和用户主动启动游戏所需的权限
+4. 短期访问令牌只在必要期间使用，避免写入普通设置文件或日志
+5. 需要持久登录时，刷新令牌计划使用 Windows 当前用户范围的加密保护，并与普通实例配置分开保存
+6. 注销账号时删除 NaCL 保存的本地令牌材料；用户仍可在 Microsoft 账号页面撤销应用授权
+7. 不出售令牌，不用于广告画像，也不交给与身份验证和 Minecraft 服务无关的第三方
+8. 日志和错误信息必须在写入前移除授权标头、完整令牌和其他可直接登录的机密
 
-用户可以在退出 NaCL 后删除 `%APPDATA%\NaCL` 和 `%LOCALAPPDATA%\NaCL` 中的数据。删除实例目录可能同时删除游戏存档、截图和本地配置，请先自行备份重要内容。
+正式实现可能根据 Microsoft 的审核要求和官方 API 变化调整。代码合并前会同步更新本说明。
 
-NaCL 项目维护者不保存上述本地数据，因此无法代替用户恢复或删除设备上的文件。
+### 5. 离线档案
 
-### 6. 变更与联系
+计划中的离线档案仅在本机创建显示名称和本地身份，用于不需要官方在线验证的场景。离线档案：
 
-功能或数据处理方式发生变化时，本说明会随代码仓库更新。隐私问题可以通过本仓库的 [GitHub Issues](https://github.com/Nalongur/NaCL/issues) 提出；请不要在公开 Issue 中提交敏感数据。
+- 不会验证用户是否拥有 Minecraft
+- 不会绕过需要 Microsoft/Xbox/Minecraft 在线认证的服务
+- 不会自动上传到 NaCL 维护者服务器
+- 可能与在线服务器的 UUID、皮肤、权限或白名单规则不兼容
+
+离线档案尚未接入正式游戏启动流程。
+
+### 6. 遥测、日志与支持材料
+
+当前版本不包含：
+
+- 使用分析或行为追踪 SDK
+- 广告标识符或广告网络
+- 自动崩溃上报
+- 后台遥测或远程配置
+- 维护者运营的日志上传服务
+
+本地日志可能包含版本号、文件路径、Java 信息、下载状态和错误文本。文件路径可能间接暴露 Windows 用户名或自定义目录名。用户在 GitHub Issue 中提交日志或截图前，应删除：
+
+- 访问令牌、刷新令牌、授权码或请求头
+- Windows 用户名、真实姓名和私人目录名
+- 服务器地址、邀请码或不希望公开的实例名称
+- 与问题无关的存档、聊天内容或截图
+
+项目维护者只会处理用户主动提交的支持材料。公开 GitHub Issue 默认可被任何人查看。
+
+### 7. 数据保留、删除与备份
+
+- 设置、实例和缓存保留在本机，直到用户通过应用功能或文件系统删除
+- 日志可由用户逐个删除，或按设置的保留天数清理
+- 未完成下载和缓存可通过存储清理功能或删除对应目录移除
+- 卸载应用不一定自动删除 `%APPDATA%\NaCL` 和 `%LOCALAPPDATA%\NaCL`
+- 删除实例目录可能同时删除世界存档、截图、资源包和本地配置，操作前应备份重要内容
+
+NaCL 维护者不持有这些本地文件，无法代替用户恢复、导出或远程删除设备上的数据。
+
+### 8. 安全边界
+
+NaCL 仍处于 Pre-alpha 阶段。当前源码公开不代表已经完成安全审计、代码签名或真实账号环境验证。在 Microsoft 登录功能完成安全评审前，不应把真实令牌手动写入配置文件、命令行参数或 Issue。
+
+如果发现可能泄露账号、令牌或本地文件的安全问题，请避免在公开 Issue 中披露可利用细节；可先创建不包含机密的简短 Issue，请求维护者提供私下联系途径。
+
+### 9. 未成年人
+
+NaCL 不面向特定年龄群收集个人信息，也没有自建注册系统。Microsoft/Xbox/Minecraft 账号的年龄要求、家庭设置和未成年人数据处理由相应服务及其政策管理。监护人应根据所使用账号和在线服务决定是否允许使用。
+
+### 10. 变更与联系
+
+当登录、遥测、更新、崩溃上报、云同步或其他数据处理方式发生变化时，本说明将在相关功能发布前或同时更新。文档顶部的生效日期会随实质变化更新。
+
+隐私问题可以通过本仓库的 [GitHub Issues](https://github.com/Nalongur/NaCL/issues) 提出。请勿在公开 Issue 中提交密码、令牌、授权码或未经脱敏的完整日志。
 
 ## English
 
-### 1. Data processed locally
+### 1. Scope and roles
 
-NaCL reads or stores the following data on the user's Windows device to provide launcher functionality:
+This notice applies to the NaCL desktop application built from this repository. It does not replace the privacy policies of Microsoft, Mojang, Minecraft, the Eclipse Foundation, GitHub, or download-hosting providers.
 
-- Launcher settings, instance metadata, and instance game directories under `%APPDATA%\NaCL` by default
-- Version manifest caches, game assets, libraries, downloads, managed Java runtimes, and local logs under `%LOCALAPPDATA%\NaCL` by default
-- A Java path selected by the user and physical memory information used to recommend memory allocation
-- Offline profile names created by the user; offline profiles do not verify Minecraft ownership
+In the current version:
 
-This data is used for local functionality and is not automatically uploaded to servers controlled by the NaCL maintainers.
+- the NaCL maintainers receive no in-app registration data because the project operates no account system
+- the maintainers do not automatically receive local settings, instances, logs, Java paths, or diagnostics
+- when a user requests a third-party service, that provider processes the corresponding network request under its own policy
+- when a user submits a GitHub Issue, log, or screenshot, GitHub and the maintainers receive the content the user chooses to publish
 
-### 2. Network requests
+### 2. Local data inventory
 
-When the user refreshes versions, installs an instance, or downloads Java, NaCL may connect directly to:
+| Data category | Contents | Purpose | Default location | Retention |
+| --- | --- | --- | --- | --- |
+| Launcher settings | Theme, default instance, Java selection, memory, and interface preferences | Restore user preferences | `%APPDATA%\NaCL\config` | Until changed or deleted by the user |
+| Download settings | Concurrency, retries, timeout, bandwidth limit, and verification settings | Control download behavior | `%APPDATA%\NaCL\config` | Until changed or deleted by the user |
+| Instance metadata | Instance name, Minecraft version, memory, display, and advanced arguments | Manage isolated instances | `%APPDATA%\NaCL\instances\<instance-id>` | Until the instance is deleted |
+| Instance game directory | Worlds, screenshots, configuration, and future game-generated data | Keep instances isolated | `%APPDATA%\NaCL\instances\<instance-id>\game` | Until deleted or moved by the user |
+| Version and asset cache | Version manifests, version JSON, client, libraries, asset indexes, and asset objects | Install and verify vanilla files | `%LOCALAPPDATA%\NaCL\cache` | Until cleaned or deleted by the user |
+| Managed Java | Downloaded Eclipse Temurin JREs and runtime information | Provide Java for compatible game versions | `%LOCALAPPDATA%\NaCL\runtimes` | Until cleaned or deleted by the user |
+| Temporary downloads | In-progress `.part` files and installation intermediates | Support retries and atomic replacement | `%LOCALAPPDATA%\NaCL\cache\downloads` | Removed on success; failed files may be cleaned by the user |
+| Local logs | Launcher, download, installation, and diagnostic text | Local troubleshooting | `%LOCALAPPDATA%\NaCL\logs` | According to the user-selected retention period or manual deletion |
+| System diagnostics | Operating-system type, CPU architecture, physical memory, and directory usage | Java selection, memory recommendations, and local diagnostics | Read at runtime; reports are not uploaded by default | Read only when required by a feature |
+| User-selected paths | Java executable and directories explicitly opened or selected by the user | Use a selected runtime or open local storage | Retained when written to the relevant local setting | Until changed or deleted by the user |
 
-- Official Mojang/Minecraft services for version manifests, version metadata, the game client, assets, and libraries
-- The Eclipse Adoptium API and its download locations to query and download Eclipse Temurin Java runtimes
+NaCL does not intentionally scan documents, browser data, password stores, contacts, or files unrelated to launcher operation. Minecraft worlds and screenshots inside an instance remain local and are not automatically uploaded.
 
-Those services may process IP addresses, request times, and ordinary network metadata under their own privacy policies. NaCL currently has no maintainer-operated account server, telemetry server, or advertising service.
+### 3. Network requests and third-party services
 
-### 3. Microsoft sign-in
+Network activity results from user-triggered version refreshes, instance installation, Java downloads, and future account sign-in or game launch.
 
-Microsoft sign-in is not currently available. When implemented, NaCL will follow these principles:
+| Service or destination | Trigger | Data sent or exposed | Response |
+| --- | --- | --- | --- |
+| Mojang version metadata (`piston-meta.mojang.com`) | Refreshing the catalog or reading version metadata | Ordinary HTTPS request information such as IP address, request time, and network client metadata | Version manifest and version JSON |
+| Minecraft asset service (`resources.download.minecraft.net`) | Installing or repairing vanilla assets | Ordinary HTTPS request information and the requested hash path | Minecraft asset objects |
+| Official file locations referenced by version JSON | Installing the vanilla client and libraries | Ordinary HTTPS request information and requested file paths | Client, libraries, native libraries, and asset indexes |
+| Eclipse Adoptium API (`api.adoptium.net`) and download locations | The user requests managed Java | Windows platform, CPU architecture, requested Java major version, and ordinary HTTPS request information | Eclipse Temurin JRE metadata and archives |
+| Microsoft, Xbox, and Minecraft identity services (planned) | The user initiates Microsoft sign-in, entitlement verification, or game launch | OAuth requests, authorization tokens, and account or entitlement data required by those services | Authorization results, Xbox/Minecraft service tokens, entitlement, and profile data |
+| GitHub | The user visits the repository, submits an Issue, or uploads diagnostic material | User-submitted account details, Issue text, attachments, and network metadata recorded by GitHub | Source code, Issues, and support communication |
 
-- Use Microsoft's official OAuth authorization flow and never request or collect a Microsoft password inside NaCL
-- Use authorization tokens only when the user initiates sign-in, Minecraft: Java Edition entitlement verification, or game launch
-- Use short-lived access tokens only as needed; refresh tokens are planned to be protected with Windows user-scoped encryption
-- Never sell or share account tokens with third parties unrelated to authentication or Minecraft services
+NaCL does not send Microsoft tokens, offline profiles, or local logs to Eclipse Adoptium, and it does not send Java download information to Mojang. Each provider receives only the requests required for its corresponding operation.
 
-Until the feature is implemented, this section describes design commitments rather than an active feature.
+Third parties may process IP addresses, device and browser information, request times, cookies, or account data under their own policies. See:
 
-### 4. Telemetry, logs, and diagnostics
+- [Microsoft Privacy Statement](https://www.microsoft.com/privacy/privacystatement)
+- [Eclipse Foundation Website Privacy Policy](https://www.eclipse.org/legal/privacy/)
+- [GitHub Privacy Statement](https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement)
 
-The current version contains no usage analytics, advertising trackers, automatic crash reporting, or background telemetry. Diagnostic logs remain local unless the user chooses to submit them.
+### 4. Microsoft sign-in and token design
 
-When requesting support through a GitHub Issue, do not publicly post access tokens, refresh tokens, full operating-system usernames, or other sensitive information.
+Microsoft sign-in is not implemented. After Minecraft Java Edition Game Service API eligibility is approved, NaCL plans to follow these principles:
 
-### 5. Data deletion and retention
+1. Present Microsoft's official authorization page; NaCL will not imitate a password form or ask the user to enter a Microsoft password into the launcher
+2. Use an OAuth flow appropriate for a public Windows desktop client, with protections against intercepted or replayed authorization codes
+3. Request only the permissions needed for sign-in, Xbox/Minecraft identity exchange, Minecraft ownership checks, profile retrieval, and user-initiated launch
+4. Use short-lived access tokens only as needed and keep them out of ordinary settings files and logs
+5. If persistent sign-in is provided, protect refresh tokens with Windows current-user-scoped encryption and store them separately from ordinary instance configuration
+6. Remove locally stored token material when the user signs out; users may also revoke application access through their Microsoft account
+7. Never sell tokens, use them for advertising profiles, or provide them to third parties unrelated to authentication or Minecraft services
+8. Redact authorization headers, complete tokens, and other login-capable secrets before writing logs or error details
 
-After closing NaCL, users may delete data under `%APPDATA%\NaCL` and `%LOCALAPPDATA%\NaCL`. Deleting an instance directory may also delete worlds, screenshots, and local configuration, so important files should be backed up first.
+The final implementation may change to satisfy Microsoft review requirements or official API changes. This notice will be updated before those changes are released.
 
-The NaCL maintainers do not retain this local data and therefore cannot restore or delete files on the user's device.
+### 5. Offline profiles
 
-### 6. Changes and contact
+Planned offline profiles will create a display name and local identity for scenarios that do not require official online authentication. Offline profiles:
 
-This notice will be updated in the repository when features or data-handling practices change. Privacy questions may be submitted through this repository's [GitHub Issues](https://github.com/Nalongur/NaCL/issues). Do not include sensitive data in a public issue.
+- do not verify that the user owns Minecraft
+- do not bypass services that require Microsoft, Xbox, or Minecraft authentication
+- are not automatically uploaded to a maintainer-operated server
+- may be incompatible with online-server UUID, skin, permission, or allowlist rules
+
+Offline profiles are not yet connected to the formal game launch flow.
+
+### 6. Telemetry, logs, and support material
+
+The current version contains no:
+
+- usage analytics or behavior-tracking SDK
+- advertising identifier or advertising network
+- automatic crash reporting
+- background telemetry or remote configuration
+- maintainer-operated log upload service
+
+Local logs may contain version numbers, file paths, Java information, download status, and error text. File paths may indirectly reveal a Windows username or custom directory name. Before submitting logs or screenshots in a GitHub Issue, users should remove:
+
+- access tokens, refresh tokens, authorization codes, or authorization headers
+- Windows usernames, real names, and private directory names
+- server addresses, invitations, or instance names that should remain private
+- unrelated worlds, chat content, or screenshots
+
+The maintainers process only support material the user chooses to submit. Public GitHub Issues are visible to anyone by default.
+
+### 7. Retention, deletion, and backup
+
+- settings, instances, and caches remain on the device until removed through application controls or the file system
+- logs can be deleted individually or expired according to the configured retention period
+- incomplete downloads and caches can be removed with storage-cleanup functions or by deleting their directories
+- uninstalling the application may not automatically remove `%APPDATA%\NaCL` and `%LOCALAPPDATA%\NaCL`
+- deleting an instance directory may also remove worlds, screenshots, resource packs, and local configuration; important files should be backed up first
+
+The NaCL maintainers do not possess these local files and therefore cannot restore, export, or remotely delete them on the user's behalf.
+
+### 8. Security boundary
+
+NaCL is in Pre-alpha. Public source availability does not mean that the application has completed a security audit, code signing, or validation with live accounts. Until Microsoft sign-in receives a security review, users should not manually place real tokens in configuration files, command-line arguments, or Issues.
+
+If a security problem could expose an account, token, or local file, avoid posting exploitable details in a public Issue. A short Issue without secrets may be used to request a private contact path.
+
+### 9. Children
+
+NaCL does not operate an account registration system or intentionally collect personal information for a particular age group. Age requirements, family settings, and children's data handling for Microsoft, Xbox, and Minecraft accounts are controlled by those services and their policies. Guardians should decide whether use is appropriate for the account and online services involved.
+
+### 10. Changes and contact
+
+If sign-in, telemetry, updating, crash reporting, cloud synchronization, or other data-handling behavior changes, this notice will be updated before or alongside the relevant release. The effective date at the top will change when the notice changes materially.
+
+Privacy questions may be submitted through this repository's [GitHub Issues](https://github.com/Nalongur/NaCL/issues). Do not include passwords, tokens, authorization codes, or complete unredacted logs in a public Issue.
