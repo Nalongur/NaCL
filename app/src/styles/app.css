@@ -673,6 +673,82 @@ button:focus-visible {
   border-top: 1px solid var(--line);
 }
 
+.offline-profile-form {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.offline-profile-form label {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.offline-profile-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.offline-profile-controls input {
+  min-width: 0;
+  flex: 1;
+  height: 36px;
+  padding: 0 11px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  outline: none;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+
+.offline-profile-controls input:focus {
+  border-color: var(--accent);
+}
+
+.profile-save {
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 7px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.profile-save:disabled {
+  opacity: 0.55;
+}
+
+.offline-profile-note {
+  margin-top: 9px;
+  color: var(--faint);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.inline-error {
+  margin-top: 9px;
+  color: var(--danger);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.launch-error {
+  max-width: 680px;
+}
+
+.launch-error .text-action {
+  margin-left: 12px;
+  color: var(--danger);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .section {
   margin-top: 38px;
 }
@@ -1101,10 +1177,16 @@ button:focus-visible {
 }
 
 .drawer-header {
+  min-width: 0;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 24px;
+}
+
+.drawer-header > :first-child {
+  min-width: 0;
+  flex: 1;
 }
 
 .drawer-brand {
@@ -1121,6 +1203,11 @@ button:focus-visible {
   font-size: 34px;
   font-weight: 400;
   line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+
+.drawer-header .head-actions {
+  flex: 0 0 auto;
 }
 
 .drawer-header .icon-button {
@@ -1270,6 +1357,8 @@ button:focus-visible {
 
 .log-drawer {
   width: min(620px, calc(100vw - 76px));
+  max-width: 100vw;
+  overflow: hidden;
 }
 
 .log-content {

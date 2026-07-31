@@ -2,9 +2,10 @@ use crate::data::{AppPaths, DataError};
 use serde::Serialize;
 use std::fmt;
 use std::fs;
-use std::io;
+use std::fs::OpenOptions;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::time::UNIX_EPOCH;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 const MAX_LOG_BYTES: usize = 512 * 1024;
 
@@ -83,6 +84,36 @@ pub fn clear_old_logs(retention_days: u16) -> LogResult<usize> {
     let paths = AppPaths::resolve()?;
     paths.initialize()?;
     clear_old_logs_in(&paths, retention_days)
+}
+
+pub fn append_launcher_log(level: &str, message: &str) -> LogResult<()> {
+    let paths = AppPaths::resolve()?;
+    paths.initialize()?;
+    append_launcher_log_in(&paths, level, message)
+}
+
+pub fn append_launcher_log_in(paths: &AppPaths, level: &str, message: &str) -> LogResult<()> {
+    let path = paths.logs_dir.join("launcher.log");
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .map_err(|source| io_error("打开启动器日志", &path, source))?;
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_millis());
+    let safe_level: String = level
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .take(12)
+        .collect();
+    let safe_message = message.replace(['\r', '\n'], " ");
+    writeln!(
+        file,
+        "[{timestamp}] [{}] {safe_message}",
+        safe_level.to_uppercase()
+    )
+    .map_err(|source| io_error("写入启动器日志", &path, source))
 }
 
 pub fn list_logs_in(paths: &AppPaths) -> LogResult<Vec<LogFile>> {
@@ -211,7 +242,9 @@ fn io_error(action: &'static str, path: &Path, source: io::Error) -> LogError {
 
 #[cfg(test)]
 mod tests {
-    use super::{clear_old_logs_in, delete_log_in, list_logs_in, read_log_in};
+    use super::{
+        append_launcher_log_in, clear_old_logs_in, delete_log_in, list_logs_in, read_log_in,
+    };
     use crate::data::AppPaths;
     use std::fs;
 
@@ -253,5 +286,18 @@ mod tests {
             clear_old_logs_in(&paths, 14).expect("cleanup should succeed"),
             0
         );
+    }
+
+    #[test]
+    fn appends_sanitized_launcher_events() {
+        let root = tempfile::tempdir().expect("temporary directory should be created");
+        let paths = AppPaths::from_roots(root.path().join("roaming"), root.path().join("local"));
+        paths.initialize().expect("paths should initialize");
+        append_launcher_log_in(&paths, "info", "launch requested\ninstance=test")
+            .expect("launcher event should append");
+        let content = read_log_in(&paths, "launcher.log").expect("launcher log should read");
+        assert!(content
+            .content
+            .contains("[INFO] launch requested instance=test"));
     }
 }

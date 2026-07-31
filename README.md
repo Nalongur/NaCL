@@ -4,12 +4,14 @@ NaCL 是一款面向 Windows 的极简 Minecraft: Java Edition 启动器，使�
 
 NaCL is a minimalist Minecraft: Java Edition launcher for Windows, built with Tauri, Vue, TypeScript, and Rust.
 
+版本变更见[更新日志](CHANGELOG.md)。See the [changelog](CHANGELOG.md) for release notes.
+
 > [!IMPORTANT]
 > **开发状态 / Development status: Pre-alpha**
 >
-> 当前仓库用于公开开发和技术预览。Microsoft 登录、离线档案与完整游戏启动流程尚未完成，也没有面向普通玩家发布的稳定安装包。请勿将当前源码构建视为可替代官方启动器的日常版本。
+> 当前仓库用于公开开发和技术预览。离线档案与原版离线启动已接入，但 Microsoft 登录、文件修复和完整异常恢复尚未完成，也没有面向普通玩家发布的稳定安装包。请勿将当前源码构建视为可替代官方启动器的日常版本。
 >
-> This repository is for public development and technical preview. Microsoft sign-in, offline profiles, and the complete game launch flow are not finished. No stable end-user installer is available. Do not treat current source builds as a daily-use replacement for the official launcher.
+> This repository is for public development and technical preview. Offline profiles and vanilla offline launch are connected, but Microsoft sign-in, file repair, and complete failure recovery are unfinished. No stable end-user installer is available. Do not treat current source builds as a daily-use replacement for the official launcher.
 
 > [!NOTE]
 > **NaCL 不是 Minecraft 官方产品，未经 Mojang 或 Microsoft 批准，也不与其存在关联。**
@@ -33,25 +35,25 @@ NaCL is a minimalist Minecraft: Java Edition launcher for Windows, built with Ta
 | --- | --- | --- |
 | 桌面界面 | 可用 | 双层侧栏、深浅主题、极简平面图标、低开销页面切换动画和右侧滑出面板已接入 |
 | 原版版本目录 | 可用 | 可从 Mojang 官方版本清单读取正式版与快照版信息，并支持搜索和筛选 |
-| 原版实例安装 | 部分完成 | 可下载版本元数据、客户端、依赖库和资源文件，并写入隔离实例目录；完整启动参数生成和进程启动尚未完成 |
+| 原版实例安装 | 部分完成 | 可下载版本元数据、客户端、依赖库和资源文件，并写入隔离实例目录；实例修复和断点恢复仍待完善 |
 | 实例管理 | 部分完成 | 支持创建、配置、复制、删除和打开实例目录；实例修复、导入导出和运行状态管理仍待完善 |
 | Java 管理 | 部分完成 | 支持检测本机 Java、手动选择可执行文件和下载托管 Eclipse Temurin；版本与游戏版本的最终匹配策略仍待完善 |
 | 内存设置 | 可用 | 检测设备物理内存，并为实例提供受约束的内存分配滑块 |
 | 下载策略 | 可用 | 使用随应用分发的 aria2 执行单文件分片下载，支持文件并发数、单文件连接数、重试、超时、限速和实时速度显示，并强制执行下载后完整性校验 |
 | 日志与诊断 | 部分完成 | 支持本地日志查看、删除、保留期清理、目录打开和存储占用诊断；尚无自动崩溃上报 |
 | Microsoft 登录 | 未实现 | Entra 应用已准备申请资格；待 Minecraft Java Edition Game Service API 获批后接入官方 OAuth 流程 |
-| 离线档案 | 未实现 | 将只创建本地身份，不验证 Minecraft 所有权；当前尚未接入最终启动流程 |
-| 游戏启动 | 未实现 | Java 进程、完整 classpath、JVM/游戏参数、原生库和认证参数尚未组合为正式启动管线 |
+| 离线档案 | 可用 | 可创建和修改仅保存在本机的用户名与稳定 UUID；不验证 Minecraft 所有权，也不能替代 Microsoft 登录 |
+| 游戏启动 | 部分完成 | 可按官方版本元数据组合 classpath、JVM/游戏参数和离线身份，解压 Windows 原生库、启动 Java 进程并记录输出；尚缺修复、崩溃归因和 Microsoft 在线启动 |
 | Forge、Fabric 与模组 | 暂不纳入 | 不属于当前原版首版范围；实例数据结构与页面布局为后续扩展保留空间 |
 
-当前适合测试界面交互、版本目录、原版文件安装、Java 管理、实例配置和本地诊断。不适合使用真实 Microsoft 账号启动游戏，也不提供可下载的稳定发行版。
+当前适合测试界面交互、版本目录、原版文件安装、离线档案与原版离线启动、Java 管理、实例配置和本地诊断。不适合使用真实 Microsoft 账号启动游戏，也不提供可下载的稳定发行版。
 
 计划中的开发顺序：
 
 1. 完成 Microsoft API 资格申请和官方登录流程
 2. 完成 Minecraft 资格校验、档案读取与安全令牌存储
-3. 实现原版游戏启动参数生成、原生库处理和进程生命周期管理
-4. 完善失败恢复、文件修复、日志脱敏和首个可测试安装包
+3. 完善启动失败恢复、文件修复、崩溃归因和日志脱敏
+4. 产出首个可测试安装包并扩大原版版本兼容测试
 5. 在原版启动稳定后，再讨论 Forge、Fabric 与模组管理
 
 ### English
@@ -67,25 +69,25 @@ Status definitions:
 | --- | --- | --- |
 | Desktop interface | Available | Dual-layer navigation, dark and light themes, flat icons, lightweight page transitions, and right-side drawers are connected |
 | Vanilla version catalog | Available | Reads release and snapshot metadata from Mojang's official version manifest, with search and filtering |
-| Vanilla instance installation | Partial | Downloads version metadata, the client, libraries, and assets into isolated instance storage; final launch arguments and process startup are not implemented |
+| Vanilla instance installation | Partial | Downloads version metadata, the client, libraries, and assets into isolated instance storage; repair and complete resume behavior remain unfinished |
 | Instance management | Partial | Creates, configures, copies, deletes, and opens instance directories; repair, import/export, and running-state management remain unfinished |
 | Java management | Partial | Detects local Java installations, supports manual executable selection, and downloads managed Eclipse Temurin runtimes; final game-to-Java compatibility policy remains unfinished |
 | Memory settings | Available | Detects physical memory and exposes a constrained per-instance allocation slider |
 | Download behavior | Available | Uses the bundled aria2 executable for segmented downloads, configures file concurrency, per-file connections, retries, timeout, and bandwidth limits, displays live throughput, and enforces post-download integrity verification |
 | Logs and diagnostics | Partial | Lists, reads, deletes, and expires local logs and reports storage use; automatic crash reporting is not included |
 | Microsoft sign-in | Not implemented | The Entra application is prepared for review; official OAuth integration depends on Minecraft Java Edition Game Service API approval |
-| Offline profiles | Not implemented | These will create local identities only and will not verify Minecraft ownership; they are not connected to the final launch flow |
-| Game launch | Not implemented | Java process creation, the full classpath, JVM/game arguments, native libraries, and authentication arguments are not yet assembled into a launch pipeline |
+| Offline profiles | Available | Creates and edits a local-only username and stable UUID; it does not verify Minecraft ownership or replace Microsoft sign-in |
+| Game launch | Partial | Builds the classpath, JVM/game arguments, and offline identity from official metadata, extracts Windows natives, starts Java, and records process output; repair, crash attribution, and Microsoft online launch remain unfinished |
 | Forge, Fabric, and mods | Out of current scope | Excluded from the first vanilla-focused release; the instance model and layout retain room for later extension |
 
-The current build is suitable for testing UI behavior, version discovery, vanilla file installation, Java management, instance settings, and local diagnostics. It is not suitable for launching the game with a real Microsoft account, and no stable downloadable release is provided.
+The current build is suitable for testing UI behavior, version discovery, vanilla file installation, offline profiles and vanilla offline launch, Java management, instance settings, and local diagnostics. It is not suitable for launching with a real Microsoft account, and no stable downloadable release is provided.
 
 Planned development order:
 
 1. Complete the Microsoft API eligibility process and official sign-in flow
 2. Add Minecraft entitlement checks, profile retrieval, and protected token storage
-3. Implement vanilla launch arguments, native-library handling, and process lifecycle management
-4. Improve recovery, file repair, log redaction, and produce the first testable installer
+3. Improve launch recovery, file repair, crash attribution, and log redaction
+4. Produce the first testable installer and broaden vanilla-version compatibility testing
 5. Discuss Forge, Fabric, and mod management after the vanilla launch path is stable
 
 See the bilingual [Privacy Notice / 隐私说明](PRIVACY.md) for local data, network requests, third-party services, and the planned Microsoft authentication flow.
@@ -162,9 +164,9 @@ cd app
 cargo test --workspace
 ```
 
-构建成功只代表源码通过对应检查，不代表 Microsoft 登录、完整游戏启动或真实账号环境已经验证。
+构建成功只代表源码通过对应检查，不代表 Microsoft 登录、所有 Minecraft 版本或真实设备上的图形启动已经验证。
 
-A successful build only confirms the corresponding source checks. It does not verify Microsoft sign-in, complete game launch, or a live account environment.
+A successful build only confirms the corresponding source checks. It does not verify Microsoft sign-in, every Minecraft version, or graphics startup on a live device.
 
 ## 本地数据 / Local data
 

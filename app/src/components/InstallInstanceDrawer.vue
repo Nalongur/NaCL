@@ -50,14 +50,14 @@ watch(
 
 <template>
   <Transition name="drawer">
-    <div v-if="open && version" class="drawer-layer" role="presentation" @mousedown.self="!busy && emit('close')">
+    <div v-if="open && version" class="drawer-layer" role="presentation" @mousedown.self="emit('close')">
       <aside class="create-drawer" aria-labelledby="install-instance-title">
         <header class="drawer-header">
           <div>
             <div class="drawer-brand">NaCL · 官方版本</div>
             <h2 id="install-instance-title">安装 {{ version.id }}</h2>
           </div>
-          <button class="icon-button" aria-label="关闭安装面板" :disabled="busy" @click="emit('close')">
+          <button class="icon-button" aria-label="收起安装面板" @click="emit('close')">
             <FlatIcon name="close" />
           </button>
         </header>
@@ -90,7 +90,9 @@ watch(
           </div>
           <div v-if="error" class="form-error" role="alert">{{ error }}</div>
           <div class="drawer-actions">
-            <button type="button" class="secondary-button" :disabled="busy" @click="emit('close')">关闭</button>
+            <button type="button" class="secondary-button" @click="emit('close')">
+              {{ busy ? "收起到安装队列" : "关闭" }}
+            </button>
             <button type="submit" class="primary-button" :disabled="!canSubmit">
               {{ busy ? (paused ? "安装已暂停" : "正在安装…") : "开始安装" }}
             </button>

@@ -160,3 +160,21 @@ export interface InstallProgress {
   downloadedBytes: number;
   downloadSpeedBytesPerSecond: number;
 }
+
+export interface OfflineProfile {
+  schemaVersion: number;
+  username: string;
+  uuid: string;
+}
+
+export interface LaunchResult {
+  instanceId: string;
+  processId: number;
+  startedEpochMs: number;
+  logFile: string;
+}
+
+export interface GameExited {
+  instanceId: string;
+  exitCode: number | null;
+}

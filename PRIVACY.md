@@ -9,9 +9,9 @@
 This notice describes the current and planned data-handling boundaries of Na Craft Launcher (NaCL). NaCL is a local desktop application. The maintainers currently operate no account, synchronization, telemetry, advertising, or log-collection server.
 
 > [!IMPORTANT]
-> Microsoft 登录和完整游戏启动流程尚未发布。文中标记为“计划”的令牌处理方式是实现承诺，不代表当前版本已经保存或使用 Microsoft 令牌。
+> Microsoft 登录尚未发布。当前离线启动不会保存或使用 Microsoft 令牌；文中标记为“计划”的令牌处理方式是实现承诺。
 >
-> Microsoft sign-in and the complete game launch flow have not been released. Token handling marked as “planned” is an implementation commitment, not a claim that the current version already stores or uses Microsoft tokens.
+> Microsoft sign-in has not been released. The current offline launch flow does not store or use Microsoft tokens; token handling marked as “planned” is an implementation commitment.
 
 ## 中文
 
@@ -32,12 +32,13 @@ This notice describes the current and planned data-handling boundaries of Na Cra
 | --- | --- | --- | --- | --- |
 | 启动器设置 | 主题、默认实例、Java 选择、内存和界面相关设置 | 恢复用户偏好 | `%APPDATA%\NaCL\config` | 保留到用户修改或删除 |
 | 下载设置 | 并发数、重试次数、超时、限速和校验设置 | 控制下载行为 | `%APPDATA%\NaCL\config` | 保留到用户修改或删除 |
+| 离线档案 | 用户输入的游戏用户名和据此生成的稳定 UUID | 本地离线身份与游戏启动 | `%APPDATA%\NaCL\config\offline-profile.json` | 保留到用户修改或删除 |
 | 实例元数据 | 实例名称、Minecraft 版本、内存、显示和高级参数 | 管理隔离实例 | `%APPDATA%\NaCL\instances\<instance-id>` | 保留到用户删除实例 |
 | 实例游戏目录 | 存档、截图、配置及未来启动后由游戏生成的数据 | 提供实例隔离 | `%APPDATA%\NaCL\instances\<instance-id>\game` | 保留到用户删除或迁移 |
 | 版本与资源缓存 | 版本清单、版本 JSON、客户端、依赖库、资源索引和资源对象 | 安装与校验原版文件 | `%LOCALAPPDATA%\NaCL\cache` | 保留到用户清理或删除 |
 | 托管 Java | 下载的 Eclipse Temurin JRE 及运行时信息 | 为对应游戏版本提供 Java | `%LOCALAPPDATA%\NaCL\runtimes` | 保留到用户清理或删除 |
 | 临时下载 | 下载中的 `.part` 文件及安装中间文件 | 支持下载重试和原子替换 | `%LOCALAPPDATA%\NaCL\cache\downloads` | 完成后移除；失败文件可由用户清理 |
-| 本地日志 | 启动器运行、下载、安装或错误诊断文本 | 用户本地排错 | `%LOCALAPPDATA%\NaCL\logs` | 按用户设置的保留期或手动删除 |
+| 本地日志 | 启动器运行、下载、安装、游戏标准输出和错误诊断文本 | 用户本地排错 | `%LOCALAPPDATA%\NaCL\logs` | 按用户设置的保留期或手动删除 |
 | 系统诊断 | 操作系统类型、CPU 架构、物理内存和目录占用等运行环境信息 | Java 选择、内存建议和本地诊断 | 运行时读取；报告默认不上传 | 仅在功能需要时读取 |
 | 手动选择的文件路径 | Java 可执行文件路径、用户主动打开或选择的目录 | 使用指定运行环境或打开本地位置 | 写入对应本地设置时保留 | 保留到用户修改或删除 |
 
@@ -45,7 +46,7 @@ NaCL 不会主动扫描用户的文档、浏览器数据、密码库、通讯录
 
 ### 3. 网络请求与第三方服务
 
-联网操作由用户触发的版本刷新、实例安装、Java 下载，以及未来的账号登录或游戏启动产生。
+联网操作由用户触发的版本刷新、实例安装、Java 下载、游戏启动，以及未来的账号登录产生。离线启动不向 NaCL 维护者发送档案，但 Minecraft 客户端本身仍可能访问 Mojang/Microsoft 服务或用户选择的服务器。
 
 | 服务或目标 | 触发条件 | 发送或暴露的数据 | 返回内容 |
 | --- | --- | --- | --- |
@@ -81,14 +82,14 @@ Microsoft 登录目前未实现。获得 Minecraft Java Edition Game Service API
 
 ### 5. 离线档案
 
-计划中的离线档案仅在本机创建显示名称和本地身份，用于不需要官方在线验证的场景。离线档案：
+离线档案在本机创建显示名称和稳定 UUID，用于不需要官方在线验证的原版游戏启动。离线档案：
 
 - 不会验证用户是否拥有 Minecraft
 - 不会绕过需要 Microsoft/Xbox/Minecraft 在线认证的服务
 - 不会自动上传到 NaCL 维护者服务器
 - 可能与在线服务器的 UUID、皮肤、权限或白名单规则不兼容
 
-离线档案尚未接入正式游戏启动流程。
+NaCL 将离线用户名、UUID 和空的在线认证字段传给本机 Minecraft 进程，不会把离线档案上传到项目维护者运营的服务。Minecraft 客户端或用户加入的服务器仍可能按其自身规则处理用户名和 UUID。
 
 ### 6. 遥测、日志与支持材料
 
@@ -154,12 +155,13 @@ In the current version:
 | --- | --- | --- | --- | --- |
 | Launcher settings | Theme, default instance, Java selection, memory, and interface preferences | Restore user preferences | `%APPDATA%\NaCL\config` | Until changed or deleted by the user |
 | Download settings | Concurrency, retries, timeout, bandwidth limit, and verification settings | Control download behavior | `%APPDATA%\NaCL\config` | Until changed or deleted by the user |
+| Offline profile | User-entered game username and the stable UUID derived from it | Local offline identity and game launch | `%APPDATA%\NaCL\config\offline-profile.json` | Until changed or deleted by the user |
 | Instance metadata | Instance name, Minecraft version, memory, display, and advanced arguments | Manage isolated instances | `%APPDATA%\NaCL\instances\<instance-id>` | Until the instance is deleted |
 | Instance game directory | Worlds, screenshots, configuration, and future game-generated data | Keep instances isolated | `%APPDATA%\NaCL\instances\<instance-id>\game` | Until deleted or moved by the user |
 | Version and asset cache | Version manifests, version JSON, client, libraries, asset indexes, and asset objects | Install and verify vanilla files | `%LOCALAPPDATA%\NaCL\cache` | Until cleaned or deleted by the user |
 | Managed Java | Downloaded Eclipse Temurin JREs and runtime information | Provide Java for compatible game versions | `%LOCALAPPDATA%\NaCL\runtimes` | Until cleaned or deleted by the user |
 | Temporary downloads | In-progress `.part` files and installation intermediates | Support retries and atomic replacement | `%LOCALAPPDATA%\NaCL\cache\downloads` | Removed on success; failed files may be cleaned by the user |
-| Local logs | Launcher, download, installation, and diagnostic text | Local troubleshooting | `%LOCALAPPDATA%\NaCL\logs` | According to the user-selected retention period or manual deletion |
+| Local logs | Launcher, download, installation, game process output, and diagnostic text | Local troubleshooting | `%LOCALAPPDATA%\NaCL\logs` | According to the user-selected retention period or manual deletion |
 | System diagnostics | Operating-system type, CPU architecture, physical memory, and directory usage | Java selection, memory recommendations, and local diagnostics | Read at runtime; reports are not uploaded by default | Read only when required by a feature |
 | User-selected paths | Java executable and directories explicitly opened or selected by the user | Use a selected runtime or open local storage | Retained when written to the relevant local setting | Until changed or deleted by the user |
 
@@ -167,7 +169,7 @@ NaCL does not intentionally scan documents, browser data, password stores, conta
 
 ### 3. Network requests and third-party services
 
-Network activity results from user-triggered version refreshes, instance installation, Java downloads, and future account sign-in or game launch.
+Network activity results from user-triggered version refreshes, instance installation, Java downloads, game launch, and future account sign-in. Offline launch does not send the profile to NaCL maintainers, but the Minecraft client may still contact Mojang/Microsoft services or servers selected by the user.
 
 | Service or destination | Trigger | Data sent or exposed | Response |
 | --- | --- | --- | --- |
@@ -203,14 +205,14 @@ The final implementation may change to satisfy Microsoft review requirements or 
 
 ### 5. Offline profiles
 
-Planned offline profiles will create a display name and local identity for scenarios that do not require official online authentication. Offline profiles:
+Offline profiles create a display name and stable UUID on the local device for vanilla game launch that does not require official online authentication. Offline profiles:
 
 - do not verify that the user owns Minecraft
 - do not bypass services that require Microsoft, Xbox, or Minecraft authentication
 - are not automatically uploaded to a maintainer-operated server
 - may be incompatible with online-server UUID, skin, permission, or allowlist rules
 
-Offline profiles are not yet connected to the formal game launch flow.
+NaCL passes the offline username, UUID, and empty online-authentication fields to the local Minecraft process. It does not upload the offline profile to a maintainer-operated service. The Minecraft client or a server joined by the user may still process the username and UUID under its own rules.
 
 ### 6. Telemetry, logs, and support material
 
