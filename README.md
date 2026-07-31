@@ -1,10 +1,21 @@
 # Na Craft Launcher
 
-NaCL 是一款面向 Windows 的极简 Minecraft: Java Edition 启动器，目前处于早期开发阶段。
+NaCL 是一款面向 Windows 的极简 Minecraft: Java Edition 启动器。
+
+NaCL is a minimalist Minecraft: Java Edition launcher for Windows, built with Tauri, Vue, TypeScript and Rust.
+
+> [!IMPORTANT]
+> **开发状态 / Development status: Pre-alpha**
+>
+> 当前仓库用于公开开发和技术预览。Microsoft 登录、离线档案与完整游戏启动流程尚未完成，也没有面向普通玩家发布的稳定安装包。
+>
+> This repository is for public development and technical preview. Microsoft sign-in, offline profiles, and the complete game launch flow are not finished. No stable end-user installer is available yet.
 
 ![NaCL 深色首页](design/renders/nacl-app-home-dark.png)
 
-## 当前进度
+## 项目状态 / Project status
+
+### 中文
 
 - 原版 Minecraft 版本浏览、下载与实例安装
 - 独立实例配置、复制、删除与本地目录管理
@@ -14,6 +25,19 @@ NaCL 是一款面向 Windows 的极简 Minecraft: Java Edition 启动器，目�
 - 本地日志、存储诊断和下载策略设置
 
 账号与游戏启动功能仍在开发。Microsoft 登录尚未开放，需完成 Minecraft Java Edition Game Service API 审核；离线档案也尚未接入正式启动流程。
+
+### English
+
+- Browse official Minecraft versions, download version files, and create vanilla instances
+- Configure, copy, delete, and open isolated instance directories
+- Detect local Java installations, select Java manually, or download managed Eclipse Temurin runtimes
+- Detect physical memory and configure per-instance memory allocation
+- Switch between dark and light themes with lightweight page transitions
+- Inspect local logs and storage diagnostics, and configure download behavior
+
+Account management and the complete game launch flow are still under development. Microsoft sign-in is pending access to the Minecraft Java Edition Game Service API, and offline profiles are not yet connected to the final launch flow.
+
+See the bilingual [Privacy Notice / 隐私说明](PRIVACY.md) for local data, network requests, and the planned Microsoft authentication flow.
 
 ## 技术栈
 
@@ -64,7 +88,7 @@ cargo test --workspace
 
 用户设置和实例配置保存在 `%APPDATA%\NaCL`，可重新下载的数据、Java 运行环境和日志保存在 `%LOCALAPPDATA%\NaCL`。构建产物不会提交到仓库。
 
-未来的 Microsoft 登录不会在 NaCL 内收集密码；短期访问令牌只用于用户主动发起的 Minecraft 验证和启动流程，刷新令牌将使用 Windows 用户级加密保护。
+未来的 Microsoft 登录不会在 NaCL 内收集密码；短期访问令牌只用于用户主动发起的 Minecraft 验证和启动流程，刷新令牌计划使用 Windows 用户级加密保护。完整说明见 [`PRIVACY.md`](PRIVACY.md)。
 
 ## 字体
 
