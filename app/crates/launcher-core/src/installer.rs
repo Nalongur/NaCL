@@ -11,11 +11,15 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
 use std::collections::HashMap;
+use std::env;
 use std::fmt;
 use std::fs;
-use std::io::{self, Read, Write};
+use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::{Component, Path, PathBuf};
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::{mpsc, Mutex};
+use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone, Deserialize)]
@@ -33,6 +37,7 @@ pub struct InstallProgress {
     pub total_files: usize,
     pub current_file: String,
     pub downloaded_bytes: u64,
+    pub download_speed_bytes_per_second: u64,
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -136,6 +141,18 @@ struct DownloadSpec {
     destination: PathBuf,
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+struct DownloadUpdate {
+    downloaded_bytes: u64,
+    speed_bytes_per_second: u64,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Aria2Sample {
+    downloaded_bytes: u64,
+    speed_bytes_per_second: u64,
+}
+
 #[derive(Debug)]
 pub enum InstallError {
     Data(DataError),
@@ -159,6 +176,10 @@ pub enum InstallError {
     },
     InvalidDownloadPath(String),
     ChecksumMismatch(String),
+    Aria2 {
+        file: String,
+        message: String,
+    },
     ThreadPool(String),
     Cancelled,
 }
@@ -185,6 +206,9 @@ impl fmt::Display for InstallError {
             }
             Self::InvalidDownloadPath(path) => write!(formatter, "下载路径不安全：{path}"),
             Self::ChecksumMismatch(file) => write!(formatter, "文件校验失败：{file}"),
+            Self::Aria2 { file, message } => {
+                write!(formatter, "aria2 下载 {file} 失败：{message}")
+            }
             Self::ThreadPool(error) => write!(formatter, "无法创建下载任务池：{error}"),
             Self::Cancelled => write!(formatter, "安装已取消"),
         }
@@ -239,6 +263,8 @@ where
     let paths = AppPaths::resolve()?;
     paths.initialize()?;
     let download_settings = load_or_create_download_settings(&paths)?;
+    let aria2c = find_aria2c();
+    let ignore_download_update = |_: DownloadUpdate| {};
     let launcher_settings = load_or_create_settings(&paths)?;
     let catalog = versions::load_version_catalog(false)?;
     let version = catalog
@@ -253,6 +279,7 @@ where
         total_files: 0,
         current_file: format!("{}.json", version.id),
         downloaded_bytes: 0,
+        download_speed_bytes_per_second: 0,
     });
 
     let version_json_path = paths.versions_dir.join(format!("{}.json", version.id));
@@ -267,6 +294,8 @@ where
         },
         &download_settings,
         &control,
+        aria2c.as_deref(),
+        &ignore_download_update,
     )?;
     let metadata_contents = fs::read_to_string(&version_json_path)
         .map_err(|source| io_error("读取版本元数据", &version_json_path, source))?;
@@ -287,6 +316,7 @@ where
                 total_files: 0,
                 current_file: format!("Java {} 运行环境", required_java.major_version),
                 downloaded_bytes: 0,
+                download_speed_bytes_per_second: 0,
             });
             java::install_managed_runtime(required_java.major_version)?;
         }
@@ -307,6 +337,8 @@ where
         },
         &download_settings,
         &control,
+        aria2c.as_deref(),
+        &ignore_download_update,
     )?;
 
     let mut library_downloads = Vec::new();
@@ -338,6 +370,7 @@ where
         &download_settings,
         &progress,
         &control,
+        aria2c.as_deref(),
     )?;
 
     let asset_contents = fs::read_to_string(&asset_index_path)
@@ -374,6 +407,7 @@ where
         &download_settings,
         &progress,
         &control,
+        aria2c.as_deref(),
     )?;
 
     progress(InstallProgress {
@@ -382,6 +416,7 @@ where
         total_files: library_downloads.len() + asset_downloads.len(),
         current_file: "instance.json".to_string(),
         downloaded_bytes: 0,
+        download_speed_bytes_per_second: 0,
     });
     let mut instance = instance::create_instance_in(
         &paths,
@@ -410,6 +445,7 @@ where
         total_files: library_downloads.len() + asset_downloads.len(),
         current_file: instance.name.clone(),
         downloaded_bytes: 0,
+        download_speed_bytes_per_second: 0,
     });
     Ok(instance)
 }
@@ -491,6 +527,7 @@ fn download_group<F>(
     settings: &DownloadSettings,
     progress: &F,
     control: &(impl Fn() -> InstallControl + Sync),
+    aria2c: Option<&Path>,
 ) -> Result<(), InstallError>
 where
     F: Fn(InstallProgress) + Sync + Send,
@@ -498,6 +535,12 @@ where
     let total = downloads.len();
     let completed = AtomicUsize::new(0);
     let downloaded_bytes = AtomicU64::new(0);
+    let download_speed = AtomicU64::new(0);
+    let last_progress_emit = Mutex::new(
+        Instant::now()
+            .checked_sub(Duration::from_secs(1))
+            .unwrap_or_else(Instant::now),
+    );
     let client = build_client(settings)?;
     let mut task_settings = settings.clone();
     if task_settings.speed_limit_kib_per_second > 0 {
@@ -512,8 +555,50 @@ where
 
     pool.install(|| {
         downloads.par_iter().try_for_each(|download| {
-            let bytes = download_one(&client, download, &task_settings, control)?;
-            downloaded_bytes.fetch_add(bytes, Ordering::Relaxed);
+            let task_downloaded_bytes = AtomicU64::new(0);
+            let task_speed = AtomicU64::new(0);
+            let report_download = |update: DownloadUpdate| {
+                replace_atomic_contribution(
+                    &downloaded_bytes,
+                    &task_downloaded_bytes,
+                    update.downloaded_bytes,
+                );
+                replace_atomic_contribution(
+                    &download_speed,
+                    &task_speed,
+                    update.speed_bytes_per_second,
+                );
+
+                let should_emit = {
+                    let mut last_emit = last_progress_emit
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    if last_emit.elapsed() >= Duration::from_millis(250) {
+                        *last_emit = Instant::now();
+                        true
+                    } else {
+                        false
+                    }
+                };
+                if should_emit {
+                    progress(InstallProgress {
+                        stage,
+                        completed_files: completed.load(Ordering::Relaxed),
+                        total_files: total,
+                        current_file: download.label.clone(),
+                        downloaded_bytes: downloaded_bytes.load(Ordering::Relaxed),
+                        download_speed_bytes_per_second: download_speed.load(Ordering::Relaxed),
+                    });
+                }
+            };
+            download_one(
+                &client,
+                download,
+                &task_settings,
+                control,
+                aria2c,
+                &report_download,
+            )?;
             let current = completed.fetch_add(1, Ordering::Relaxed) + 1;
             progress(InstallProgress {
                 stage,
@@ -521,22 +606,38 @@ where
                 total_files: total,
                 current_file: download.label.clone(),
                 downloaded_bytes: downloaded_bytes.load(Ordering::Relaxed),
+                download_speed_bytes_per_second: download_speed.load(Ordering::Relaxed),
             });
             Ok::<(), InstallError>(())
         })
     })
 }
 
-fn download_one(
+fn replace_atomic_contribution(total: &AtomicU64, previous: &AtomicU64, value: u64) {
+    let old = previous.swap(value, Ordering::Relaxed);
+    if value >= old {
+        total.fetch_add(value - old, Ordering::Relaxed);
+    } else {
+        total.fetch_sub(old - value, Ordering::Relaxed);
+    }
+}
+
+fn download_one<P>(
     client: &reqwest::blocking::Client,
     download: &DownloadSpec,
     settings: &DownloadSettings,
     control: &(impl Fn() -> InstallControl + Sync),
-) -> Result<u64, InstallError> {
+    aria2c: Option<&Path>,
+    progress: &P,
+) -> Result<u64, InstallError>
+where
+    P: Fn(DownloadUpdate) + Sync,
+{
     wait_for_control(control)?;
     if download.destination.is_file()
         && (download.sha1.is_empty() || file_sha1(&download.destination)? == download.sha1)
     {
+        progress(DownloadUpdate::default());
         return Ok(0);
     }
     if let Some(parent) = download.destination.parent() {
@@ -545,8 +646,43 @@ fn download_one(
     let temporary = download.destination.with_extension("part");
     let mut last_error = None;
     for _ in 0..=settings.retry_count {
-        match download_attempt(client, download, &temporary, settings, control) {
+        let attempt = if let Some(aria2c) = aria2c {
+            match download_attempt_aria2(aria2c, download, &temporary, settings, control, progress)
+            {
+                Ok(bytes) => Ok(bytes),
+                Err(InstallError::Cancelled) => Err(InstallError::Cancelled),
+                Err(_) => {
+                    cleanup_partial_download(&temporary);
+                    progress(DownloadUpdate::default());
+                    download_attempt_builtin(
+                        client, download, &temporary, settings, control, progress,
+                    )
+                }
+            }
+        } else {
+            download_attempt_builtin(client, download, &temporary, settings, control, progress)
+        };
+        match attempt {
             Ok(bytes) => {
+                if !download.sha1.is_empty()
+                    && file_sha1(&temporary)? != download.sha1.to_ascii_lowercase()
+                {
+                    last_error = Some(InstallError::ChecksumMismatch(download.label.clone()));
+                    cleanup_partial_download(&temporary);
+                    progress(DownloadUpdate::default());
+                    continue;
+                }
+                if download.size > 0
+                    && fs::metadata(&temporary)
+                        .map_err(|source| io_error("读取临时下载文件", &temporary, source))?
+                        .len()
+                        != download.size
+                {
+                    last_error = Some(InstallError::ChecksumMismatch(download.label.clone()));
+                    cleanup_partial_download(&temporary);
+                    progress(DownloadUpdate::default());
+                    continue;
+                }
                 if download.destination.is_file() {
                     fs::remove_file(&download.destination).map_err(|source| {
                         io_error("替换旧下载文件", &download.destination, source)
@@ -554,24 +690,38 @@ fn download_one(
                 }
                 fs::rename(&temporary, &download.destination)
                     .map_err(|source| io_error("完成下载", &download.destination, source))?;
+                progress(DownloadUpdate {
+                    downloaded_bytes: bytes,
+                    speed_bytes_per_second: 0,
+                });
                 return Ok(bytes);
+            }
+            Err(InstallError::Cancelled) => {
+                cleanup_partial_download(&temporary);
+                progress(DownloadUpdate::default());
+                return Err(InstallError::Cancelled);
             }
             Err(error) => {
                 last_error = Some(error);
-                let _ = fs::remove_file(&temporary);
+                cleanup_partial_download(&temporary);
+                progress(DownloadUpdate::default());
             }
         }
     }
     Err(last_error.unwrap_or_else(|| InstallError::ChecksumMismatch(download.label.clone())))
 }
 
-fn download_attempt(
+fn download_attempt_builtin<P>(
     client: &reqwest::blocking::Client,
     download: &DownloadSpec,
     temporary: &Path,
     settings: &DownloadSettings,
     control: &(impl Fn() -> InstallControl + Sync),
-) -> Result<u64, InstallError> {
+    progress: &P,
+) -> Result<u64, InstallError>
+where
+    P: Fn(DownloadUpdate) + Sync,
+{
     wait_for_control(control)?;
     let mut response = client
         .get(&download.url)
@@ -585,9 +735,9 @@ fn download_attempt(
     }
     let mut file = fs::File::create(temporary)
         .map_err(|source| io_error("创建临时下载文件", temporary, source))?;
-    let mut hasher = Sha1::new();
     let mut total = 0_u64;
     let started = Instant::now();
+    let mut transfer_rate = TransferRate::new();
     let mut buffer = [0_u8; 64 * 1024];
     loop {
         wait_for_control(control)?;
@@ -599,20 +749,299 @@ fn download_attempt(
         }
         file.write_all(&buffer[..count])
             .map_err(|source| io_error("写入临时下载文件", temporary, source))?;
-        hasher.update(&buffer[..count]);
         total = total.saturating_add(count as u64);
         throttle_download(total, started, settings.speed_limit_kib_per_second);
+        progress(DownloadUpdate {
+            downloaded_bytes: total,
+            speed_bytes_per_second: transfer_rate.record(count as u64),
+        });
     }
     file.sync_all()
         .map_err(|source| io_error("同步临时下载文件", temporary, source))?;
-    let actual = format!("{:x}", hasher.finalize());
-    if !download.sha1.is_empty() && actual != download.sha1 {
-        return Err(InstallError::ChecksumMismatch(download.label.clone()));
-    }
-    if download.size > 0 && total != download.size {
-        return Err(InstallError::ChecksumMismatch(download.label.clone()));
-    }
+    progress(DownloadUpdate {
+        downloaded_bytes: total,
+        speed_bytes_per_second: 0,
+    });
     Ok(total)
+}
+
+struct TransferRate {
+    window_started: Instant,
+    window_bytes: u64,
+    last_speed: u64,
+}
+
+impl TransferRate {
+    fn new() -> Self {
+        Self {
+            window_started: Instant::now(),
+            window_bytes: 0,
+            last_speed: 0,
+        }
+    }
+
+    fn record(&mut self, bytes: u64) -> u64 {
+        self.window_bytes = self.window_bytes.saturating_add(bytes);
+        let elapsed = self.window_started.elapsed();
+        if elapsed >= Duration::from_millis(250) {
+            self.last_speed = (self.window_bytes as f64 / elapsed.as_secs_f64()) as u64;
+            self.window_started = Instant::now();
+            self.window_bytes = 0;
+        }
+        self.last_speed
+    }
+}
+
+fn download_attempt_aria2<P>(
+    aria2c: &Path,
+    download: &DownloadSpec,
+    temporary: &Path,
+    settings: &DownloadSettings,
+    control: &(impl Fn() -> InstallControl + Sync),
+    progress: &P,
+) -> Result<u64, InstallError>
+where
+    P: Fn(DownloadUpdate) + Sync,
+{
+    let directory = temporary.parent().ok_or_else(|| InstallError::Aria2 {
+        file: download.label.clone(),
+        message: "临时下载路径缺少父目录".to_string(),
+    })?;
+    let output_name = temporary.file_name().ok_or_else(|| InstallError::Aria2 {
+        file: download.label.clone(),
+        message: "临时下载路径缺少文件名".to_string(),
+    })?;
+    let mut last_reported_bytes = 0_u64;
+
+    'resume: loop {
+        wait_for_control(control)?;
+        let mut command = Command::new(aria2c);
+        command
+            .arg("--no-conf=true")
+            .arg("--dir")
+            .arg(directory)
+            .arg("--out")
+            .arg(output_name)
+            .arg("--continue=true")
+            .arg("--allow-overwrite=true")
+            .arg("--auto-file-renaming=false")
+            .arg("--file-allocation=none")
+            .arg(format!(
+                "--max-connection-per-server={}",
+                settings.connections_per_download
+            ))
+            .arg(format!("--split={}", settings.connections_per_download))
+            .arg("--min-split-size=1M")
+            .arg("--max-tries=1")
+            .arg(format!(
+                "--connect-timeout={}",
+                settings.connection_timeout_seconds
+            ))
+            .arg(format!("--timeout={}", settings.connection_timeout_seconds))
+            .arg("--summary-interval=1")
+            .arg("--console-log-level=warn")
+            .arg("--download-result=hide")
+            .arg("--user-agent=NaCL/0.1")
+            .arg(&download.url)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+        if settings.speed_limit_kib_per_second > 0 {
+            command.arg(format!(
+                "--max-download-limit={}K",
+                settings.speed_limit_kib_per_second
+            ));
+        }
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            command.creation_flags(CREATE_NO_WINDOW);
+        }
+
+        let mut child = command.spawn().map_err(|source| InstallError::Aria2 {
+            file: download.label.clone(),
+            message: format!("无法启动 {}：{source}", aria2c.display()),
+        })?;
+        let stdout = child.stdout.take().ok_or_else(|| InstallError::Aria2 {
+            file: download.label.clone(),
+            message: "无法读取 aria2 进度输出".to_string(),
+        })?;
+        let (sender, receiver) = mpsc::channel();
+        let reader = thread::spawn(move || read_aria2_samples(stdout, sender));
+
+        loop {
+            while let Ok(sample) = receiver.try_recv() {
+                last_reported_bytes = sample.downloaded_bytes;
+                progress(DownloadUpdate {
+                    downloaded_bytes: sample.downloaded_bytes,
+                    speed_bytes_per_second: sample.speed_bytes_per_second,
+                });
+            }
+
+            match control() {
+                InstallControl::Cancelled => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    let _ = reader.join();
+                    return Err(InstallError::Cancelled);
+                }
+                InstallControl::Paused => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    let _ = reader.join();
+                    progress(DownloadUpdate {
+                        downloaded_bytes: last_reported_bytes,
+                        speed_bytes_per_second: 0,
+                    });
+                    wait_for_control(control)?;
+                    continue 'resume;
+                }
+                InstallControl::Running => {}
+            }
+
+            if let Some(status) = child.try_wait().map_err(|source| InstallError::Aria2 {
+                file: download.label.clone(),
+                message: format!("无法读取 aria2 进程状态：{source}"),
+            })? {
+                let _ = reader.join();
+                while let Ok(sample) = receiver.try_recv() {
+                    progress(DownloadUpdate {
+                        downloaded_bytes: sample.downloaded_bytes,
+                        speed_bytes_per_second: sample.speed_bytes_per_second,
+                    });
+                }
+                if !status.success() {
+                    return Err(InstallError::Aria2 {
+                        file: download.label.clone(),
+                        message: status.code().map_or_else(
+                            || "进程异常退出".to_string(),
+                            |code| format!("进程退出码 {code}"),
+                        ),
+                    });
+                }
+                let total = fs::metadata(temporary)
+                    .map_err(|source| io_error("读取 aria2 下载文件", temporary, source))?
+                    .len();
+                progress(DownloadUpdate {
+                    downloaded_bytes: total,
+                    speed_bytes_per_second: 0,
+                });
+                return Ok(total);
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+    }
+}
+
+fn read_aria2_samples(stdout: impl Read, sender: mpsc::Sender<Aria2Sample>) {
+    let mut reader = BufReader::new(stdout);
+    let mut buffer = Vec::new();
+    loop {
+        buffer.clear();
+        let read = reader.read_until(b'\r', &mut buffer).unwrap_or(0);
+        if read == 0 {
+            return;
+        }
+        let output = String::from_utf8_lossy(&buffer);
+        for line in output.lines() {
+            if let Some(sample) = parse_aria2_sample(line) {
+                let _ = sender.send(sample);
+            }
+        }
+    }
+}
+
+fn parse_aria2_sample(line: &str) -> Option<Aria2Sample> {
+    let start = line.find("[#")? + 2;
+    let end = line[start..].find(']')? + start;
+    let mut fields = line[start..end].split_whitespace();
+    fields.next()?;
+    let downloaded = fields.next()?.split_once('/')?.0;
+    let downloaded_bytes = parse_aria2_size(downloaded)?;
+    let speed_bytes_per_second = fields
+        .find_map(|field| field.strip_prefix("DL:"))
+        .and_then(parse_aria2_size)
+        .unwrap_or(0);
+    Some(Aria2Sample {
+        downloaded_bytes,
+        speed_bytes_per_second,
+    })
+}
+
+fn parse_aria2_size(value: &str) -> Option<u64> {
+    const UNITS: [(&str, f64); 7] = [
+        ("GiB", 1024.0 * 1024.0 * 1024.0),
+        ("MiB", 1024.0 * 1024.0),
+        ("KiB", 1024.0),
+        ("GB", 1000.0 * 1000.0 * 1000.0),
+        ("MB", 1000.0 * 1000.0),
+        ("KB", 1000.0),
+        ("B", 1.0),
+    ];
+    let value = value.trim();
+    UNITS.iter().find_map(|(suffix, multiplier)| {
+        value
+            .strip_suffix(suffix)
+            .and_then(|number| number.parse::<f64>().ok())
+            .map(|number| (number * multiplier) as u64)
+    })
+}
+
+fn cleanup_partial_download(temporary: &Path) {
+    let _ = fs::remove_file(temporary);
+    let mut control_file = temporary.as_os_str().to_os_string();
+    control_file.push(".aria2");
+    let _ = fs::remove_file(PathBuf::from(control_file));
+}
+
+fn find_aria2c() -> Option<PathBuf> {
+    if let Some(path) = env::var_os("NACL_ARIA2C_PATH").map(PathBuf::from) {
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+
+    let executable_name = if cfg!(target_os = "windows") {
+        "aria2c.exe"
+    } else {
+        "aria2c"
+    };
+    let mut candidates = Vec::new();
+    if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
+        if let Ok(current_executable) = env::current_exe() {
+            if let Some(directory) = current_executable.parent() {
+                candidates.push(directory.join("aria2").join(executable_name));
+                candidates.push(
+                    directory
+                        .join("resources")
+                        .join("aria2")
+                        .join(executable_name),
+                );
+            }
+        }
+        if let Ok(current_directory) = env::current_dir() {
+            candidates.push(
+                current_directory
+                    .join("src-tauri")
+                    .join("resources")
+                    .join("aria2")
+                    .join(executable_name),
+            );
+            candidates.push(
+                current_directory
+                    .join("app")
+                    .join("src-tauri")
+                    .join("resources")
+                    .join("aria2")
+                    .join(executable_name),
+            );
+        }
+    }
+    if let Some(path_value) = env::var_os("PATH") {
+        candidates
+            .extend(env::split_paths(&path_value).map(|directory| directory.join(executable_name)));
+    }
+    candidates.into_iter().find(|path| path.is_file())
 }
 
 fn wait_for_control(control: &(impl Fn() -> InstallControl + Sync)) -> Result<(), InstallError> {
@@ -664,7 +1093,8 @@ fn io_error(action: &'static str, path: &Path, source: io::Error) -> InstallErro
 #[cfg(test)]
 mod tests {
     use super::{
-        library_allowed_on_windows, safe_relative_path, Library, LibraryDownloads, Rule, RuleOs,
+        library_allowed_on_windows, parse_aria2_sample, parse_aria2_size, safe_relative_path,
+        Library, LibraryDownloads, Rule, RuleOs,
     };
     use std::collections::HashMap;
 
@@ -693,5 +1123,20 @@ mod tests {
             }],
         };
         assert!(library_allowed_on_windows(&library));
+    }
+
+    #[test]
+    fn parses_aria2_progress_sample() {
+        let sample = parse_aria2_sample("[#e9f2af 544KiB/2.3MiB(22%) CN:3 DL:828KiB ETA:2s]")
+            .expect("aria2 sample should parse");
+        assert_eq!(sample.downloaded_bytes, 544 * 1024);
+        assert_eq!(sample.speed_bytes_per_second, 828 * 1024);
+    }
+
+    #[test]
+    fn parses_aria2_decimal_sizes() {
+        assert_eq!(parse_aria2_size("2.5MiB"), Some(2_621_440));
+        assert_eq!(parse_aria2_size("0B"), Some(0));
+        assert_eq!(parse_aria2_size("unknown"), None);
     }
 }

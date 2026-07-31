@@ -32,6 +32,12 @@ const progressPercent = computed(() => {
   return Math.min(100, Math.round((props.progress.completedFiles / props.progress.totalFiles) * 100));
 });
 
+function formatTransferRate(bytesPerSecond: number) {
+  if (bytesPerSecond < 1024) return `${bytesPerSecond} B/s`;
+  if (bytesPerSecond < 1024 * 1024) return `${(bytesPerSecond / 1024).toFixed(1)} KB/s`;
+  return `${(bytesPerSecond / (1024 * 1024)).toFixed(1)} MB/s`;
+}
+
 watch(
   () => [props.open, props.version?.id] as const,
   ([open]) => {
@@ -72,7 +78,10 @@ watch(
               <strong>{{ progressPercent }}%</strong>
             </div>
             <div class="progress-track"><span :style="{ width: `${progressPercent}%` }"></span></div>
-            <div class="field-hint">{{ progress?.currentFile || "连接 Mojang 服务…" }}</div>
+            <div class="field-hint">
+              {{ progress?.currentFile || "连接 Mojang 服务…" }} ·
+              {{ paused ? "已暂停" : formatTransferRate(progress?.downloadSpeedBytesPerSecond ?? 0) }}
+            </div>
             <div class="install-controls">
               <button v-if="!paused" type="button" class="text-action" @click="emit('pause')">暂停</button>
               <button v-else type="button" class="text-action" @click="emit('resume')">继续</button>

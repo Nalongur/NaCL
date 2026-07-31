@@ -37,7 +37,7 @@ NaCL is a minimalist Minecraft: Java Edition launcher for Windows, built with Ta
 | 实例管理 | 部分完成 | 支持创建、配置、复制、删除和打开实例目录；实例修复、导入导出和运行状态管理仍待完善 |
 | Java 管理 | 部分完成 | 支持检测本机 Java、手动选择可执行文件和下载托管 Eclipse Temurin；版本与游戏版本的最终匹配策略仍待完善 |
 | 内存设置 | 可用 | 检测设备物理内存，并为实例提供受约束的内存分配滑块 |
-| 下载策略 | 可用 | 支持并发数、重试、超时和限速设置，并强制执行下载后完整性校验 |
+| 下载策略 | 可用 | 使用随应用分发的 aria2 执行单文件分片下载，支持文件并发数、单文件连接数、重试、超时、限速和实时速度显示，并强制执行下载后完整性校验 |
 | 日志与诊断 | 部分完成 | 支持本地日志查看、删除、保留期清理、目录打开和存储占用诊断；尚无自动崩溃上报 |
 | Microsoft 登录 | 未实现 | Entra 应用已准备申请资格；待 Minecraft Java Edition Game Service API 获批后接入官方 OAuth 流程 |
 | 离线档案 | 未实现 | 将只创建本地身份，不验证 Minecraft 所有权；当前尚未接入最终启动流程 |
@@ -71,7 +71,7 @@ Status definitions:
 | Instance management | Partial | Creates, configures, copies, deletes, and opens instance directories; repair, import/export, and running-state management remain unfinished |
 | Java management | Partial | Detects local Java installations, supports manual executable selection, and downloads managed Eclipse Temurin runtimes; final game-to-Java compatibility policy remains unfinished |
 | Memory settings | Available | Detects physical memory and exposes a constrained per-instance allocation slider |
-| Download behavior | Available | Configures concurrency, retries, timeout, and bandwidth limits, with enforced post-download integrity verification |
+| Download behavior | Available | Uses the bundled aria2 executable for segmented downloads, configures file concurrency, per-file connections, retries, timeout, and bandwidth limits, displays live throughput, and enforces post-download integrity verification |
 | Logs and diagnostics | Partial | Lists, reads, deletes, and expires local logs and reports storage use; automatic crash reporting is not included |
 | Microsoft sign-in | Not implemented | The Entra application is prepared for review; official OAuth integration depends on Minecraft Java Edition Game Service API approval |
 | Offline profiles | Not implemented | These will create local identities only and will not verify Minecraft ownership; they are not connected to the final launch flow |
@@ -96,6 +96,16 @@ See the bilingual [Privacy Notice / 隐私说明](PRIVACY.md) for local data, ne
 - [Vue 3](https://vuejs.org/)：界面与交互状态 / interface and interaction state
 - TypeScript：前端类型与组件逻辑 / frontend types and component logic
 - Rust：实例、下载、Java、存储和诊断核心 / instance, download, Java, storage, and diagnostics core
+
+## 第三方下载组件 / Third-party download component
+
+Windows x64 构建随应用分发未经修改的 aria2 1.37.0 官方可执行文件。aria2
+采用 GNU GPL v2 或更高版本授权；其来源说明与完整许可文本保存在
+`app/src-tauri/resources/aria2/`。
+
+The Windows x64 build bundles the unmodified official aria2 1.37.0 executable.
+aria2 is licensed under GNU GPL v2 or later; its source attribution and complete
+license text are included under `app/src-tauri/resources/aria2/`.
 
 ## 目录结构 / Repository layout
 
