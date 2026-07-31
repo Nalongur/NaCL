@@ -33,7 +33,9 @@ app/
 ```text
 NaCL/
 ├─ config/
-│  └─ settings.json
+│  ├─ settings.json
+│  ├─ download-settings.json
+│  └─ offline-profile.json
 └─ instances/
    └─ <instance-id>/
       ├─ instance.json
@@ -53,5 +55,6 @@ NaCL/
 └─ logs/
 ```
 
-账号令牌不会写入 `settings.json`；实现 Microsoft 登录时将使用 Windows
+离线档案只包含用户名和据此生成的稳定 UUID，不包含密码或 Microsoft
+令牌。账号令牌不会写入 `settings.json`；实现 Microsoft 登录时将使用 Windows
 用户级 DPAPI 加密刷新令牌，短期访问令牌只保留在内存中。

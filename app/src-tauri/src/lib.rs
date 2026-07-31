@@ -23,7 +23,99 @@ async fn install_managed_java(
 }
 
 #[tauri::command]
+fn get_offline_profile() -> Result<Option<launcher_core::launch::OfflineProfile>, String> {
+    launcher_core::launch::load_offline_profile().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn save_offline_profile(username: String) -> Result<launcher_core::launch::OfflineProfile, String> {
+    launcher_core::launch::save_offline_profile(username).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+async fn launch_game(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, GameTaskState>,
+    request: launcher_core::launch::LaunchGameRequest,
+) -> Result<launcher_core::launch::LaunchResult, String> {
+    let _ = launcher_core::logs::append_launcher_log(
+        "info",
+        &format!("请求启动实例 {}", request.instance_id),
+    );
+    {
+        let mut running = state
+            .0
+            .lock()
+            .map_err(|_| "游戏进程状态不可用".to_string())?;
+        if running.contains_key(&request.instance_id) {
+            return Err("该实例已经在运行".to_string());
+        }
+        running.insert(request.instance_id.clone(), 0);
+    }
+
+    let instance_id = request.instance_id.clone();
+    let processes = Arc::clone(&state.0);
+    tauri::async_runtime::spawn_blocking(move || {
+        let launched = match launcher_core::launch::launch_game(request) {
+            Ok(launched) => launched,
+            Err(error) => {
+                let _ = launcher_core::logs::append_launcher_log(
+                    "error",
+                    &format!("实例 {instance_id} 启动失败：{error}"),
+                );
+                if let Ok(mut running) = processes.lock() {
+                    running.remove(&instance_id);
+                }
+                return Err(error.to_string());
+            }
+        };
+        let result = launched.result.clone();
+        if let Ok(mut running) = processes.lock() {
+            running.insert(instance_id.clone(), result.process_id);
+        }
+        let _ = launcher_core::logs::append_launcher_log(
+            "info",
+            &format!("实例 {instance_id} 已启动，进程 {}", result.process_id),
+        );
+        std::thread::spawn(move || {
+            let mut child = launched.child;
+            let exit_code = child.wait().ok().and_then(|status| status.code());
+            if let Ok(mut running) = processes.lock() {
+                running.remove(&instance_id);
+            }
+            let _ = launcher_core::logs::append_launcher_log(
+                "info",
+                &format!("实例 {instance_id} 已退出，退出码 {exit_code:?}"),
+            );
+            let _ = app.emit(
+                "game-exited",
+                GameExited {
+                    instance_id,
+                    exit_code,
+                },
+            );
+        });
+        Ok(result)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+fn is_game_running(
+    state: tauri::State<'_, GameTaskState>,
+    instance_id: String,
+) -> Result<bool, String> {
+    let running = state
+        .0
+        .lock()
+        .map_err(|_| "游戏进程状态不可用".to_string())?;
+    Ok(running.contains_key(&instance_id))
+}
+
+#[tauri::command]
 fn bootstrap_app() -> Result<launcher_core::data::AppBootstrap, String> {
+    let _ = launcher_core::logs::append_launcher_log("info", "启动器界面已初始化");
     launcher_core::data::bootstrap_app().map_err(|error| error.to_string())
 }
 
@@ -207,6 +299,7 @@ fn open_directory(
 pub fn run() {
     tauri::Builder::default()
         .manage(InstallTaskState::default())
+        .manage(GameTaskState::default())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
@@ -220,9 +313,12 @@ pub fn run() {
             detect_java_runtimes,
             diagnostics,
             duplicate_instance,
+            get_offline_profile,
             inspect_java_runtime,
             install_managed_java,
             install_instance,
+            is_game_running,
+            launch_game,
             list_instances,
             list_logs,
             load_version_catalog,
@@ -231,6 +327,7 @@ pub fn run() {
             pause_install,
             read_log,
             resume_install,
+            save_offline_profile,
             select_instance,
             set_theme,
             storage_report,
@@ -241,9 +338,20 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU8, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tauri::Emitter;
 
 #[derive(Default)]
 struct InstallTaskState(Arc<AtomicU8>);
+
+#[derive(Default)]
+struct GameTaskState(Arc<Mutex<HashMap<String, u32>>>);
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GameExited {
+    instance_id: String,
+    exit_code: Option<i32>,
+}

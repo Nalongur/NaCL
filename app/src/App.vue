@@ -14,6 +14,7 @@ import brandIcon from "./assets/brand/nacl-icon.svg";
 import type {
   DiagnosticReport,
   DownloadSettings,
+  GameExited,
   InstallProgress,
   InstanceTab,
   JavaRuntime,
@@ -23,6 +24,8 @@ import type {
   LogFile,
   MinecraftVersion,
   MemoryReport,
+  LaunchResult,
+  OfflineProfile,
   Page,
   SettingsSection,
   StorageReport,
@@ -49,6 +52,8 @@ interface SettingRow {
   description: string;
   value: string;
   action: string;
+  section: InstanceTab;
+  behavior?: "editor" | "directory";
 }
 
 interface AppBootstrap {
@@ -124,6 +129,7 @@ const downloadSaveState = ref<"idle" | "saving">("idle");
 const downloadSaveError = ref("");
 const downloadSection = ref<DownloadSection>("versions");
 const instanceEditorOpen = ref(false);
+const instanceEditorTab = ref<InstanceTab>("overview");
 const instanceSaveState = ref<"idle" | "saving">("idle");
 const instanceSaveError = ref("");
 const settingsSection = ref<SettingsSection>("general");
@@ -141,9 +147,21 @@ const copyState = ref<"idle" | "copied" | "error">("idle");
 const storage = ref<StorageReport | null>(null);
 const maintenanceState = ref<"idle" | "working" | "done" | "error">("idle");
 const logSearch = ref("");
-const logSection = ref<LogSection>("launcher");
+const logSection = ref<LogSection>("game");
 const helpSection = ref<HelpSection>("diagnostics");
+const offlineProfile = ref<OfflineProfile | null>(null);
+const offlineEditorOpen = ref(false);
+const offlineUsername = ref("");
+const offlineProfileState = ref<"idle" | "saving">("idle");
+const offlineProfileError = ref("");
+const launchState = ref<"idle" | "preparing" | "running">("idle");
+const launchedInstanceId = ref<string | null>(null);
+const launchError = ref("");
+const lastLaunch = ref<LaunchResult | null>(null);
+const lastExitCode = ref<number | null>(null);
 let unlistenInstallProgress: UnlistenFn | null = null;
+let unlistenGameExited: UnlistenFn | null = null;
+let gameStatePoll: number | null = null;
 
 const railItems: Array<{ page: Page; icon: FlatIconName; label: string }> = [
   { page: "home", icon: "home", label: "首页" },
@@ -177,31 +195,31 @@ const resizeHandles: Array<{
 
 const settings: Record<InstanceTab, SettingRow[]> = {
   overview: [
-    { name: "游戏版本", description: "该实例使用的 Minecraft 版本", value: "Minecraft 1.21 · 正式版", action: "检查" },
-    { name: "Java 运行环境", description: "启动前自动检查兼容性", value: "Java 21 · 64 位", action: "更改" },
-    { name: "内存分配", description: "仅应用于当前实例", value: "最小 1 GB · 最大 4 GB", action: "调整" },
-    { name: "文件状态", description: "客户端、资源和依赖库", value: "完整 · 上次检查于今天", action: "重新检查" },
+    { name: "游戏版本", description: "该实例使用的 Minecraft 版本", value: "Minecraft 1.21 · 正式版", action: "检查", section: "version" },
+    { name: "Java 运行环境", description: "启动前自动检查兼容性", value: "Java 21 · 64 位", action: "更改", section: "runtime" },
+    { name: "内存分配", description: "仅应用于当前实例", value: "最小 1 GB · 最大 4 GB", action: "调整", section: "runtime" },
+    { name: "文件状态", description: "客户端、资源和依赖库", value: "完整 · 上次检查于今天", action: "查看", section: "files" },
   ],
   version: [
-    { name: "Minecraft 版本", description: "切换版本前会检查存档兼容风险", value: "1.21", action: "选择版本" },
-    { name: "版本频道", description: "控制版本选择器显示范围", value: "正式版", action: "更改" },
+    { name: "Minecraft 版本", description: "切换版本前会检查存档兼容风险", value: "1.21", action: "选择版本", section: "version" },
+    { name: "版本频道", description: "控制版本选择器显示范围", value: "正式版", action: "更改", section: "version" },
   ],
   runtime: [
-    { name: "Java 路径", description: "自动管理或使用自定义运行环境", value: "自动选择 · Java 21", action: "浏览" },
-    { name: "内存", description: "当前实例的 JVM 内存上限", value: "4 GB", action: "调整" },
-    { name: "JVM 参数", description: "高级用户可覆盖默认参数", value: "使用推荐参数", action: "编辑" },
+    { name: "Java 路径", description: "自动管理或使用自定义运行环境", value: "自动选择 · Java 21", action: "浏览", section: "runtime" },
+    { name: "内存", description: "当前实例的 JVM 内存上限", value: "4 GB", action: "调整", section: "runtime" },
+    { name: "JVM 参数", description: "高级用户可覆盖默认参数", value: "使用推荐参数", action: "编辑", section: "runtime" },
   ],
   display: [
-    { name: "启动模式", description: "窗口、最大化或全屏", value: "窗口模式", action: "更改" },
-    { name: "窗口尺寸", description: "Minecraft 客户端初始尺寸", value: "1280 × 720", action: "调整" },
+    { name: "启动模式", description: "窗口、最大化或全屏", value: "窗口模式", action: "更改", section: "display" },
+    { name: "窗口尺寸", description: "Minecraft 客户端初始尺寸", value: "1280 × 720", action: "调整", section: "display" },
   ],
   files: [
-    { name: "实例目录", description: "存档、截图、资源包与配置", value: "instances\\survival", action: "打开目录" },
-    { name: "文件占用", description: "不包含共享资源和依赖库", value: "386 MB", action: "查看" },
+    { name: "实例目录", description: "存档、截图、资源包与配置", value: "instances\\survival", action: "打开目录", section: "files", behavior: "directory" },
+    { name: "文件占用", description: "不包含共享资源和依赖库", value: "386 MB", action: "查看", section: "files" },
   ],
   advanced: [
-    { name: "游戏参数", description: "在默认参数之后追加", value: "未设置", action: "编辑" },
-    { name: "调试模式", description: "记录更详细的启动信息", value: "关闭", action: "启用" },
+    { name: "游戏参数", description: "在默认参数之后追加", value: "未设置", action: "编辑", section: "advanced" },
+    { name: "调试模式", description: "记录更详细的启动信息", value: "关闭", action: "启用", section: "advanced" },
   ],
 };
 
@@ -231,7 +249,13 @@ const visibleVersions = computed(() => {
 });
 const visibleLogs = computed(() => {
   const query = logSearch.value.trim().toLowerCase();
-  return logs.value.filter((log) => !query || log.name.toLowerCase().includes(query));
+  return logs.value
+    .filter((log) =>
+      logSection.value === "game"
+        ? log.name.startsWith("game-")
+        : !log.name.startsWith("game-"),
+    )
+    .filter((log) => !query || log.name.toLowerCase().includes(query));
 });
 const settingsSectionTitle = computed(
   () =>
@@ -327,6 +351,27 @@ const javaSummary = computed(() => {
     : "Java";
   const architecture = formatArchitecture(primaryJava.value.architecture);
   return architecture ? `${version} · ${architecture}` : version;
+});
+
+const launchButtonText = computed(() => {
+  if (!selectedInstance.value) return "添加实例";
+  if (selectedInstance.value.installation.state !== "ready") return "安装不完整";
+  if (launchState.value === "preparing") return "正在准备";
+  if (
+    launchState.value === "running" &&
+    launchedInstanceId.value === selectedInstance.value.id
+  ) {
+    return "游戏运行中";
+  }
+  return offlineProfile.value ? "离线启动" : "先登录再启动";
+});
+
+const launchButtonTitle = computed(() => {
+  if (selectedInstance.value?.installation.state !== "ready") {
+    return "请从下载页重新安装";
+  }
+  if (!offlineProfile.value) return "创建本地离线档案后启动";
+  return `以 ${offlineProfile.value.username} 离线启动`;
 });
 
 const visibleSettings = computed(() =>
@@ -432,10 +477,10 @@ function setPage(page: Page) {
   }
 }
 
-function selectInstance(instance: LauncherInstance) {
+function selectInstance(instance: LauncherInstance, navigateToDetails = currentPage.value !== "home") {
   selectedInstanceId.value = instance.id;
   launcherSettings.value.selectedInstanceId = instance.id;
-  currentPage.value = "instances";
+  if (navigateToDetails) currentPage.value = "instances";
   void invoke("select_instance", { instanceId: instance.id }).catch(() => {
     settingsBackendAvailable.value = false;
   });
@@ -448,6 +493,74 @@ function beginAddInstance() {
   versionSearch.value = "";
 }
 
+function openOfflineEditor() {
+  offlineUsername.value = offlineProfile.value?.username ?? "";
+  offlineProfileError.value = "";
+  offlineEditorOpen.value = true;
+}
+
+function closeOfflineEditor() {
+  if (offlineProfileState.value === "saving") return;
+  offlineEditorOpen.value = false;
+  offlineProfileError.value = "";
+}
+
+async function saveOfflineProfile() {
+  offlineProfileState.value = "saving";
+  offlineProfileError.value = "";
+  try {
+    offlineProfile.value = await invoke<OfflineProfile>("save_offline_profile", {
+      username: offlineUsername.value,
+    });
+    offlineEditorOpen.value = false;
+  } catch (error) {
+    offlineProfileError.value =
+      typeof error === "string" ? error : "保存离线档案失败";
+  } finally {
+    offlineProfileState.value = "idle";
+  }
+}
+
+async function startSelectedGame() {
+  const instance = selectedInstance.value;
+  if (!instance || instance.installation.state !== "ready") return;
+  if (!offlineProfile.value) {
+    openOfflineEditor();
+    return;
+  }
+  if (launchState.value !== "idle") return;
+
+  launchState.value = "preparing";
+  launchedInstanceId.value = instance.id;
+  launchError.value = "";
+  lastExitCode.value = null;
+  try {
+    const result = await invoke<LaunchResult>("launch_game", {
+      request: { instanceId: instance.id },
+    });
+    lastLaunch.value = result;
+    if (
+      launchState.value === "preparing" &&
+      launchedInstanceId.value === instance.id
+    ) {
+      launchState.value = "running";
+    }
+    void loadLogs();
+  } catch (error) {
+    launchState.value = "idle";
+    launchedInstanceId.value = null;
+    launchError.value = typeof error === "string" ? error : "启动游戏失败";
+    logSection.value = "game";
+    void loadLogs();
+  }
+}
+
+async function openGameLogs() {
+  logSection.value = "game";
+  currentPage.value = "logs";
+  await loadLogs();
+}
+
 function openInstallPanel(version: MinecraftVersion) {
   selectedVersion.value = version;
   installError.value = "";
@@ -457,10 +570,11 @@ function openInstallPanel(version: MinecraftVersion) {
   installPanelOpen.value = true;
 }
 
-function openInstanceEditor() {
+function openInstanceEditor(tab: InstanceTab = currentTab.value) {
   if (!selectedInstance.value) return;
   instanceSaveError.value = "";
   instanceSaveState.value = "idle";
+  instanceEditorTab.value = tab;
   instanceEditorOpen.value = true;
 }
 
@@ -487,12 +601,31 @@ async function saveInstance(instance: LauncherInstance) {
   }
 }
 
-function handleSettingAction() {
-  if (currentTab.value === "files") {
+function handleSettingAction(row: SettingRow) {
+  if (row.behavior === "directory") {
     void openDirectory("instance");
     return;
   }
-  openInstanceEditor();
+  openInstanceEditor(row.section);
+}
+
+async function reconcileGameState() {
+  const instanceId = launchedInstanceId.value;
+  if (!instanceId || launchState.value !== "running") return;
+  try {
+    const running = await invoke<boolean>("is_game_running", { instanceId });
+    if (
+      !running &&
+      launchState.value === "running" &&
+      launchedInstanceId.value === instanceId
+    ) {
+      launchState.value = "idle";
+      launchedInstanceId.value = null;
+      void loadLogs();
+    }
+  } catch {
+    // The exit event remains the primary signal; polling only repairs missed events.
+  }
 }
 
 function activeContextSection() {
@@ -691,9 +824,8 @@ async function copyDiagnostics() {
 }
 
 function closeInstallPanel() {
-  if (installState.value !== "idle") return;
   installPanelOpen.value = false;
-  installError.value = "";
+  if (installState.value === "idle") installError.value = "";
 }
 
 async function loadVersionCatalog(forceRefresh: boolean) {
@@ -727,8 +859,9 @@ async function installSelectedVersion(request: { name: string; versionId: string
     );
     selectedInstanceId.value = created.id;
     launcherSettings.value.selectedInstanceId = created.id;
-    currentPage.value = "instances";
+    const showCreatedInstance = installPanelOpen.value;
     installPanelOpen.value = false;
+    if (showCreatedInstance) currentPage.value = "instances";
   } catch (error) {
     installError.value = installCancelledByUser.value
       ? ""
@@ -806,6 +939,8 @@ function handleGlobalKeydown(event: KeyboardEvent) {
   if (event.key !== "Escape") return;
   if (installPanelOpen.value) {
     closeInstallPanel();
+  } else if (offlineEditorOpen.value) {
+    closeOfflineEditor();
   } else if (instanceEditorOpen.value) {
     closeInstanceEditor();
   } else if (logPanelOpen.value) {
@@ -969,6 +1104,14 @@ async function loadInstances() {
   }
 }
 
+async function loadOfflineProfile() {
+  try {
+    offlineProfile.value = await invoke<OfflineProfile | null>("get_offline_profile");
+  } catch {
+    offlineProfile.value = null;
+  }
+}
+
 onMounted(async () => {
   document.documentElement.dataset.theme = theme.value;
   window.addEventListener("keydown", handleGlobalKeydown);
@@ -978,15 +1121,33 @@ onMounted(async () => {
       installProgress.value = event.payload;
     },
   ).catch(() => null);
+  unlistenGameExited = await listen<GameExited>("game-exited", (event) => {
+    if (event.payload.instanceId !== launchedInstanceId.value) return;
+    launchState.value = "idle";
+    launchedInstanceId.value = null;
+    lastExitCode.value = event.payload.exitCode;
+    if (event.payload.exitCode !== 0) {
+      logSection.value = "game";
+      launchError.value =
+        event.payload.exitCode === null
+          ? "游戏进程已结束，未返回退出码"
+          : `游戏异常退出（代码 ${event.payload.exitCode}），请查看游戏日志`;
+    }
+    void loadLogs();
+  }).catch(() => null);
   await loadAppBootstrap();
   await loadInstances();
+  await loadOfflineProfile();
   void loadJavaRuntimes();
   void loadMemoryReport();
+  gameStatePoll = window.setInterval(() => void reconcileGameState(), 1500);
 });
 
 onBeforeUnmount(() => {
   window.removeEventListener("keydown", handleGlobalKeydown);
   unlistenInstallProgress?.();
+  unlistenGameExited?.();
+  if (gameStatePoll !== null) window.clearInterval(gameStatePoll);
 });
 
 watch(theme, (nextTheme) => {
@@ -1106,8 +1267,8 @@ watch(
       <div class="account-summary">
         <div class="avatar"><FlatIcon name="user" /></div>
         <div>
-          <div class="account-name">本地档案</div>
-          <div class="account-status">账号功能预留</div>
+          <div class="account-name">{{ offlineProfile?.username ?? "未登录" }}</div>
+          <div class="account-status">{{ offlineProfile ? "离线档案" : "需要本地档案" }}</div>
         </div>
       </div>
     </aside>
@@ -1183,11 +1344,12 @@ watch(
               <button
                 v-if="selectedInstance"
                 class="launch-button"
-                :disabled="selectedInstance.installation.state !== 'ready'"
-                :title="selectedInstance.installation.state === 'ready' ? '账号接入后可启动' : '请从下载页重新安装'"
+                :disabled="selectedInstance.installation.state !== 'ready' || launchState !== 'idle'"
+                :title="launchButtonTitle"
+                @click="startSelectedGame"
               >
-                <FlatIcon name="download" />
-                <span>{{ selectedInstance.installation.state === "ready" ? "等待账号接入" : "安装不完整" }}</span>
+                <FlatIcon name="play" />
+                <span>{{ launchButtonText }}</span>
               </button>
               <button v-else class="launch-button" @click="beginAddInstance">
                 <FlatIcon name="plus" />
@@ -1200,6 +1362,10 @@ watch(
               >
                 查看实例设置
               </button>
+            </div>
+            <div v-if="launchError" class="inline-error launch-error">
+              <span>{{ launchError }}</span>
+              <button class="text-action" @click="openGameLogs">查看游戏日志</button>
             </div>
           </div>
 
@@ -1222,15 +1388,49 @@ watch(
                 </svg>
               </div>
               <div>
-                <div class="profile-name">本地档案</div>
-                <div class="provider"><span class="provider-dot"></span>账号功能预留</div>
-                <div class="account-status">尚未连接</div>
+                <div class="profile-name">{{ offlineProfile?.username ?? "尚未登录" }}</div>
+                <div class="provider">
+                  <span class="provider-dot"></span>
+                  {{ offlineProfile ? "离线档案" : "仅保存在本机" }}
+                </div>
+                <div class="account-status">
+                  {{ offlineProfile ? "可启动离线游戏" : "创建档案后即可启动" }}
+                </div>
               </div>
             </div>
             <div class="profile-actions">
               <button class="profile-action" disabled>连接 Microsoft</button>
-              <button class="profile-action" disabled>离线登录</button>
+              <button class="profile-action" @click="openOfflineEditor">
+                {{ offlineProfile ? "修改离线档案" : "离线登录" }}
+              </button>
             </div>
+            <form
+              v-if="offlineEditorOpen"
+              class="offline-profile-form"
+              @submit.prevent="saveOfflineProfile"
+            >
+              <label for="offline-username">游戏用户名</label>
+              <div class="offline-profile-controls">
+                <input
+                  id="offline-username"
+                  v-model="offlineUsername"
+                  maxlength="16"
+                  autocomplete="off"
+                  autofocus
+                  placeholder="3–16 位英文、数字或下划线"
+                />
+                <button type="button" class="profile-action" @click="closeOfflineEditor">取消</button>
+                <button
+                  type="submit"
+                  class="profile-save"
+                  :disabled="offlineProfileState === 'saving'"
+                >
+                  {{ offlineProfileState === "saving" ? "保存中" : "保存" }}
+                </button>
+              </div>
+              <div v-if="offlineProfileError" class="inline-error">{{ offlineProfileError }}</div>
+              <div class="offline-profile-note">离线档案不验证正版所有权，仅用于本地与离线服务器。</div>
+            </form>
           </div>
         </div>
 
@@ -1240,10 +1440,12 @@ watch(
             <div class="section-note">本地实例</div>
           </div>
           <div v-if="selectedInstance" class="activity-row">
-            <span class="activity-dot activity-dot--idle"></span>
-            <span class="activity-title">上次启动</span>
-            <span>{{ selectedInstance.name }} · 尚未启动</span>
-            <span>—</span>
+            <span class="activity-dot" :class="{ 'activity-dot--idle': launchState === 'idle' }"></span>
+            <span class="activity-title">{{ launchState === "running" ? "正在运行" : "最近启动" }}</span>
+            <span>
+              {{ lastLaunch ? `${selectedInstance.name} · 进程 ${lastLaunch.processId}` : `${selectedInstance.name} · 尚未启动` }}
+            </span>
+            <span>{{ lastExitCode === null ? "—" : `退出码 ${lastExitCode}` }}</span>
           </div>
           <div v-else class="activity-empty">
             创建实例后，启动记录会显示在这里。
@@ -1271,13 +1473,18 @@ watch(
             <button class="setting-action danger-action" @click="deleteSelectedInstance">删除</button>
             <button
               class="launch-button"
-              :disabled="selectedInstance.installation.state !== 'ready'"
-              title="Microsoft 账号接入后开放启动"
+              :disabled="selectedInstance.installation.state !== 'ready' || launchState !== 'idle'"
+              :title="launchButtonTitle"
+              @click="startSelectedGame"
             >
-              <FlatIcon name="download" />
-              <span>{{ selectedInstance.installation.state === "ready" ? "等待账号" : "安装不完整" }}</span>
+              <FlatIcon name="play" />
+              <span>{{ launchButtonText }}</span>
             </button>
           </div>
+        </div>
+        <div v-if="launchError" class="inline-error launch-error">
+          <span>{{ launchError }}</span>
+          <button class="text-action" @click="openGameLogs">查看游戏日志</button>
         </div>
 
         <nav class="instance-tabs" aria-label="实例设置分类">
@@ -1299,7 +1506,7 @@ watch(
               <div class="setting-description">{{ row.description }}</div>
             </div>
             <div class="setting-value">{{ row.value }}</div>
-            <button class="setting-action" @click="handleSettingAction">{{ row.action }}</button>
+            <button class="setting-action" @click="handleSettingAction(row)">{{ row.action }}</button>
           </div>
         </div>
       </section>
@@ -1428,6 +1635,7 @@ watch(
               </span>
             </div>
             <div class="queue-actions">
+              <button class="setting-action" @click="installPanelOpen = true">查看详情</button>
               <button v-if="installState === 'installing'" class="setting-action" @click="pauseInstall">暂停</button>
               <button v-else class="setting-action" @click="resumeInstall">继续</button>
               <button class="setting-action danger-action" @click="cancelInstall">取消</button>
@@ -1484,7 +1692,7 @@ watch(
               {{ logSection === "launcher" ? "查看 NaCL 运行和安装过程产生的记录" : "按实例查看 Minecraft 进程输出" }}
             </div>
           </div>
-          <div v-if="logSection === 'launcher'" class="head-actions">
+          <div class="head-actions">
             <button class="icon-button" aria-label="刷新日志" @click="loadLogs">
               <FlatIcon name="refresh" />
             </button>
@@ -1492,13 +1700,12 @@ watch(
           </div>
         </div>
 
-        <template v-if="logSection === 'launcher'">
-          <input v-model="logSearch" class="search-input log-search" placeholder="搜索日志文件名" />
-          <div class="data-list">
+        <input v-model="logSearch" class="search-input log-search" placeholder="搜索日志文件名" />
+        <div class="data-list">
           <div v-if="logsState === 'loading'" class="data-empty">正在读取日志…</div>
           <div v-else-if="logsState === 'unavailable'" class="data-empty">桌面端日志读取不可用</div>
           <div v-else-if="visibleLogs.length === 0" class="data-empty">
-            暂无日志。启动器和游戏功能开始运行后，记录会显示在这里。
+            {{ logSection === "game" ? "暂无游戏日志。首次启动游戏后，进程输出会显示在这里。" : "暂无启动器日志。" }}
           </div>
           <template v-else>
             <button
@@ -1515,12 +1722,6 @@ watch(
               <span class="data-row-meta">{{ formatTimestamp(log.modifiedEpochMs) }}</span>
             </button>
           </template>
-          </div>
-        </template>
-        <div v-else class="content-empty-block">
-          <FlatIcon name="file" />
-          <h2>还没有游戏日志</h2>
-          <p>完成账号与游戏启动功能后，这里会按实例显示 Minecraft 输出。</p>
         </div>
       </section>
 
@@ -1685,7 +1886,7 @@ watch(
     <InstanceSettingsDrawer
       :open="instanceEditorOpen"
       :instance="selectedInstance"
-      :tab="currentTab"
+      :tab="instanceEditorTab"
       :saving="instanceSaveState === 'saving'"
       :error="instanceSaveError"
       @close="closeInstanceEditor"

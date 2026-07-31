@@ -1,6 +1,6 @@
 [package]
 name = "nacl-launcher-core"
-version = "0.1.0"
+version = "0.2.0"
 description = "Core launcher services for Na Craft Launcher"
 edition = "2021"
 
@@ -17,6 +17,7 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking", 
 rayon = "1"
 sha1 = "0.10"
 sha2 = "0.10"
+md5 = "0.7"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [target.'cfg(windows)'.dependencies]
