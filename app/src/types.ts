@@ -51,6 +51,7 @@ export interface LauncherSettings {
 export interface DownloadSettings {
   schemaVersion: number;
   concurrentDownloads: number;
+  connectionsPerDownload: number;
   retryCount: number;
   connectionTimeoutSeconds: number;
   speedLimitKibPerSecond: number;
@@ -157,4 +158,5 @@ export interface InstallProgress {
   totalFiles: number;
   currentFile: string;
   downloadedBytes: number;
+  downloadSpeedBytesPerSecond: number;
 }

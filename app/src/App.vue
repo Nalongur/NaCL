@@ -99,6 +99,7 @@ const launcherSettings = ref<LauncherSettings>({
 const downloadSettings = ref<DownloadSettings>({
   schemaVersion: 1,
   concurrentDownloads: 4,
+  connectionsPerDownload: 4,
   retryCount: 3,
   connectionTimeoutSeconds: 30,
   speedLimitKibPerSecond: 0,
@@ -575,6 +576,10 @@ function formatFileSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatTransferRate(bytesPerSecond: number) {
+  return `${formatFileSize(bytesPerSecond)}/s`;
 }
 
 function formatTimestamp(epochMs: number) {
@@ -1417,7 +1422,10 @@ watch(
                 <strong>{{ installProgressPercent }}%</strong>
               </div>
               <div class="progress-track"><span :style="{ width: `${installProgressPercent}%` }"></span></div>
-              <span>{{ formatFileSize(installProgress?.downloadedBytes ?? 0) }} 已下载</span>
+              <span>
+                {{ formatFileSize(installProgress?.downloadedBytes ?? 0) }} 已下载 ·
+                {{ installState === "paused" ? "已暂停" : formatTransferRate(installProgress?.downloadSpeedBytesPerSecond ?? 0) }}
+              </span>
             </div>
             <div class="queue-actions">
               <button v-if="installState === 'installing'" class="setting-action" @click="pauseInstall">暂停</button>

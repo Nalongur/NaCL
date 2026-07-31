@@ -247,6 +247,7 @@ impl Default for LauncherSettings {
 pub struct DownloadSettings {
     pub schema_version: u32,
     pub concurrent_downloads: u8,
+    pub connections_per_download: u8,
     pub retry_count: u8,
     pub connection_timeout_seconds: u16,
     pub speed_limit_kib_per_second: u32,
@@ -259,6 +260,7 @@ impl Default for DownloadSettings {
         Self {
             schema_version: SETTINGS_SCHEMA_VERSION,
             concurrent_downloads: 4,
+            connections_per_download: 4,
             retry_count: 3,
             connection_timeout_seconds: 30,
             speed_limit_kib_per_second: 0,
@@ -426,6 +428,11 @@ fn validate_download_settings(settings: &DownloadSettings) -> DataResult<()> {
     if !(1..=16).contains(&settings.concurrent_downloads) {
         return Err(DataError::InvalidSettingsValue(
             "download concurrency must be between 1 and 16",
+        ));
+    }
+    if !(1..=16).contains(&settings.connections_per_download) {
+        return Err(DataError::InvalidSettingsValue(
+            "connections per download must be between 1 and 16",
         ));
     }
     if settings.retry_count > 10 {
