@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="460" viewBox="0 0 1200 460">
+  <rect width="1200" height="460" fill="#0b0e0f"/>
+
+  <g font-family="Segoe UI, Microsoft YaHei UI, sans-serif">
+    <g transform="translate(40 40)">
+      <rect width="346" height="380" rx="18" fill="#15191a" stroke="#2e3435"/>
+      <text x="28" y="42" fill="#f2f6f6" font-size="17" font-weight="600">01  缺口字标</text>
+      <text x="28" y="68" fill="#929c9d" font-size="12">共享笔画 · 方孔 a · 无底板</text>
+
+      <g transform="translate(32 75)" fill="#59d4d1">
+        <rect x="34" y="54" width="18" height="132"/>
+        <polygon points="48,54 68,54 114,186 94,186"/>
+        <rect x="98" y="54" width="18" height="132"/>
+
+        <path fill-rule="evenodd" d="M138 98H218V186H138ZM158 118V166H194V118Z"/>
+        <rect x="206" y="84" width="18" height="102"/>
+        <rect x="206" y="54" width="18" height="18"/>
+      </g>
+
+      <g transform="translate(28 306)">
+        <rect width="290" height="1" fill="#2e3435"/>
+        <circle cx="5" cy="30" r="4" fill="#59d4d1"/>
+        <text x="18" y="34" fill="#929c9d" font-size="12">推荐：最简洁，缩小后仍然清晰</text>
+      </g>
+    </g>
+
+    <g transform="translate(427 40)">
+      <rect width="346" height="380" rx="18" fill="#15191a" stroke="#2e3435"/>
+      <text x="28" y="42" fill="#f2f6f6" font-size="17" font-weight="600">02  方块拼接</text>
+      <text x="28" y="68" fill="#929c9d" font-size="12">模块网格 · Minecraft 关联更强</text>
+
+      <g transform="translate(52 112)" fill="#59d4d1">
+        <rect x="0" y="0" width="22" height="22"/>
+        <rect x="0" y="28" width="22" height="22"/>
+        <rect x="0" y="56" width="22" height="22"/>
+        <rect x="0" y="84" width="22" height="22"/>
+        <rect x="0" y="112" width="22" height="22"/>
+
+        <rect x="84" y="0" width="22" height="22"/>
+        <rect x="84" y="28" width="22" height="22"/>
+        <rect x="84" y="56" width="22" height="22"/>
+        <rect x="84" y="84" width="22" height="22"/>
+        <rect x="84" y="112" width="22" height="22"/>
+
+        <rect x="21" y="21" width="22" height="22"/>
+        <rect x="42" y="49" width="22" height="22"/>
+        <rect x="63" y="77" width="22" height="22"/>
+
+        <rect x="132" y="56" width="22" height="22"/>
+        <rect x="160" y="56" width="22" height="22"/>
+        <rect x="188" y="56" width="22" height="22"/>
+        <rect x="132" y="84" width="22" height="22"/>
+        <rect x="188" y="84" width="22" height="22"/>
+        <rect x="132" y="112" width="22" height="22"/>
+        <rect x="160" y="112" width="22" height="22"/>
+        <rect x="188" y="112" width="22" height="22"/>
+        <rect x="188" y="28" width="22" height="22"/>
+      </g>
+
+      <g transform="translate(28 306)">
+        <rect width="290" height="1" fill="#2e3435"/>
+        <circle cx="5" cy="30" r="4" fill="#59d4d1"/>
+        <text x="18" y="34" fill="#929c9d" font-size="12">识别鲜明，但像素感会更强</text>
+      </g>
+    </g>
+
+    <g transform="translate(814 40)">
+      <rect width="346" height="380" rx="18" fill="#15191a" stroke="#2e3435"/>
+      <text x="28" y="42" fill="#f2f6f6" font-size="17" font-weight="600">03  切角徽记</text>
+      <text x="28" y="68" fill="#929c9d" font-size="12">开放轮廓 · 工具感更强</text>
+
+      <g transform="translate(54 93)">
+        <path d="M28 0H212L238 26V176L212 202H28L0 174V28Z"
+              fill="none" stroke="#59d4d1" stroke-width="10"/>
+        <path d="M190 0H212L238 26V48" fill="none" stroke="#0b0e0f" stroke-width="14"/>
+        <rect x="31" y="45" width="15" height="112" fill="#59d4d1"/>
+        <polygon points="43,45 60,45 98,157 81,157" fill="#59d4d1"/>
+        <rect x="85" y="45" width="15" height="112" fill="#59d4d1"/>
+        <path fill="#59d4d1" fill-rule="evenodd"
+              d="M121 83H184V157H121ZM137 99V141H166V99Z"/>
+        <rect x="173" y="70" width="15" height="87" fill="#59d4d1"/>
+      </g>
+
+      <g transform="translate(28 306)">
+        <rect width="290" height="1" fill="#2e3435"/>
+        <circle cx="5" cy="30" r="4" fill="#59d4d1"/>
+        <text x="18" y="34" fill="#929c9d" font-size="12">更像启动器或工具，但结构更复杂</text>
+      </g>
+    </g>
+  </g>
+</svg>

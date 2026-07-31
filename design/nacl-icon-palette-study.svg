@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="500" viewBox="0 0 1180 500">
+  <rect width="1180" height="500" fill="#0c0f10"/>
+
+  <defs>
+    <path id="layer-back" d="M88 24H448V56H480V432H448V464H88Z"/>
+    <path id="layer-middle" d="M64 56H432V88H464V448H432V480H64Z"/>
+    <path id="layer-front" d="M40 88H400V120H440V408H392V456H40Z"/>
+    <g id="smiley-na">
+      <path
+        transform="translate(58 400) scale(.31 -.31)"
+        d="M109 -30H11L124 778H244L380 170Q383 156 386.5 140.5Q390 125 393 109Q396 143 399 171L470 778H568L455 -30H337L213 520Q208 544 201 579Q194 614 189 647Q186 612 182 577.5Q178 543 175 520Z"
+      />
+      <path
+        transform="translate(213 400) scale(.31 -.31)"
+        d="M360 -30H268L273 25Q251 -5 223.5 -22.5Q196 -40 166 -40Q118 -40 83.5 -8Q49 24 36 96.5Q23 169 40 290Q61 442 116.5 515.5Q172 589 245 589Q312 589 342 528L349 580H446ZM139 279Q131 215 130.5 163Q130 111 144 80.5Q158 50 192 50Q216 50 235.5 67.5Q255 85 269 113Q283 141 291 172L323 395Q324 441 305.5 470Q287 499 254 499Q223 499 200 469Q177 439 162 389Q147 339 139 279Z"
+      />
+    </g>
+  </defs>
+
+  <g font-family="Segoe UI, Microsoft YaHei UI, sans-serif">
+    <g transform="translate(30 30)">
+      <rect width="350" height="440" rx="18" fill="#141819" stroke="#2c3334"/>
+      <text x="24" y="38" fill="#f0f3f2" font-size="16" font-weight="600">01  雾青</text>
+      <text x="24" y="62" fill="#879293" font-size="11">中性主体 · 克制冷青</text>
+      <g transform="translate(34 80) scale(.55)">
+        <use href="#layer-back" fill="#344344"/>
+        <use href="#layer-middle" fill="#78aaa8"/>
+        <use href="#layer-front" fill="#f2f3f2"/>
+        <use href="#smiley-na" fill="#161d1e"/>
+      </g>
+      <circle cx="24" cy="408" r="4" fill="#78aaa8"/>
+      <text x="38" y="412" fill="#a2aaab" font-size="11">推荐 · 清晰、安静、系统感强</text>
+    </g>
+
+    <g transform="translate(415 30)">
+      <rect width="350" height="440" rx="18" fill="#141819" stroke="#2c3334"/>
+      <text x="24" y="38" fill="#f0f3f2" font-size="16" font-weight="600">02  矿物灰</text>
+      <text x="24" y="62" fill="#879293" font-size="11">低对比 · 更柔和</text>
+      <g transform="translate(34 80) scale(.55)">
+        <use href="#layer-back" fill="#657776"/>
+        <use href="#layer-middle" fill="#a1bab8"/>
+        <use href="#layer-front" fill="#e3e7e6"/>
+        <use href="#smiley-na" fill="#223031"/>
+      </g>
+      <circle cx="24" cy="408" r="4" fill="#a1bab8"/>
+      <text x="38" y="412" fill="#a2aaab" font-size="11">最柔和，但小尺寸对比略弱</text>
+    </g>
+
+    <g transform="translate(800 30)">
+      <rect width="350" height="440" rx="18" fill="#141819" stroke="#2c3334"/>
+      <text x="24" y="38" fill="#f0f3f2" font-size="16" font-weight="600">03  夜墨</text>
+      <text x="24" y="62" fill="#879293" font-size="11">深色主体 · 冷青收敛</text>
+      <g transform="translate(34 80) scale(.55)">
+        <use href="#layer-back" fill="#2a3435"/>
+        <use href="#layer-middle" fill="#4f8f8d"/>
+        <use href="#layer-front" fill="#191e1f"/>
+        <use href="#smiley-na" fill="#e8eceb"/>
+      </g>
+      <circle cx="24" cy="408" r="4" fill="#4f8f8d"/>
+      <text x="38" y="412" fill="#a2aaab" font-size="11">稳重耐看，更适合暗色桌面</text>
+    </g>
+  </g>
+</svg>

@@ -1,0 +1,49 @@
+@font-face {
+  font-family: "Smiley Sans";
+  src: url("../assets/fonts/SmileySans-Oblique.woff2") format("woff2");
+  font-weight: 400;
+  font-style: oblique;
+  font-display: swap;
+}
+
+:root {
+  color-scheme: dark;
+  --rail: #101314;
+  --sidebar: #15191a;
+  --main: #1a1e1f;
+  --surface: #202526;
+  --surface-hover: #242a2b;
+  --surface-active: #223234;
+  --line: #2e3435;
+  --line-strong: #3a4243;
+  --text: #f2f6f6;
+  --muted: #929c9d;
+  --faint: #647071;
+  --accent: #59d4d1;
+  --accent-soft: #193638;
+  --accent-ink: #0c2425;
+  --success: #75d8aa;
+  --danger: #f07e7e;
+  --scrim: rgba(6, 10, 11, 0.58);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --rail: #edf1f0;
+  --sidebar: #f4f7f6;
+  --main: #fbfdfc;
+  --surface: #ffffff;
+  --surface-hover: #edf3f2;
+  --surface-active: #ddf2f1;
+  --line: #dbe2e1;
+  --line-strong: #c8d2d1;
+  --text: #171b1c;
+  --muted: #697374;
+  --faint: #99a3a4;
+  --accent: #168f92;
+  --accent-soft: #d7efee;
+  --accent-ink: #f4ffff;
+  --success: #23865e;
+  --danger: #c84d55;
+  --scrim: rgba(28, 39, 40, 0.24);
+}

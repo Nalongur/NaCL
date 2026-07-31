@@ -1,0 +1,661 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NaCl Launcher — Concept V3</title>
+  <style>
+    @font-face {
+      font-family: "Smiley Sans";
+      src: url("./assets/fonts/SmileySans-Oblique.woff2") format("woff2");
+      font-weight: 400;
+      font-style: oblique;
+      font-display: block;
+    }
+
+    :root {
+      color-scheme: dark;
+      --stage: #0b0e0f;
+      --rail: #101314;
+      --sidebar: #15191a;
+      --main: #1a1e1f;
+      --surface: #202526;
+      --surface-active: #223234;
+      --line: #2e3435;
+      --line-strong: #3a4243;
+      --text: #f2f6f6;
+      --muted: #929c9d;
+      --faint: #647071;
+      --accent: #59d4d1;
+      --accent-soft: #193638;
+      --accent-ink: #0c2425;
+      --success: #75d8aa;
+      --danger: #f07e7e;
+    }
+
+    :root[data-theme="light"] {
+      color-scheme: light;
+      --stage: #e8edec;
+      --rail: #edf1f0;
+      --sidebar: #f4f7f6;
+      --main: #fbfdfc;
+      --surface: #ffffff;
+      --surface-active: #ddf2f1;
+      --line: #dbe2e1;
+      --line-strong: #c8d2d1;
+      --text: #171b1c;
+      --muted: #697374;
+      --faint: #99a3a4;
+      --accent: #168f92;
+      --accent-soft: #d7efee;
+      --accent-ink: #f4ffff;
+      --success: #23865e;
+      --danger: #c84d55;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+    }
+
+    body {
+      display: grid;
+      place-items: center;
+      background: var(--stage);
+      color: var(--text);
+      font-family: "Segoe UI Variable", "Microsoft YaHei UI", "Segoe UI", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    button {
+      color: inherit;
+      font: inherit;
+    }
+
+    .app-window {
+      width: calc(100vw - 64px);
+      height: calc(100vh - 64px);
+      min-width: 1120px;
+      min-height: 680px;
+      display: grid;
+      grid-template-columns: 76px 248px 1fr;
+      grid-template-rows: 100%;
+      overflow: hidden;
+      border: 1px solid var(--line-strong);
+      border-radius: 16px;
+      background: var(--main);
+    }
+
+    .rail {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 22px 0 18px;
+      background: var(--rail);
+      border-right: 1px solid var(--line);
+    }
+
+    .brand {
+      width: 52px;
+      height: 38px;
+      display: grid;
+      place-items: center;
+      margin-bottom: 34px;
+      color: var(--text);
+      font-family: "Smiley Sans", sans-serif;
+      font-size: 23px;
+      line-height: 1;
+      letter-spacing: -1px;
+    }
+
+    .rail-nav,
+    .rail-bottom {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .rail-bottom {
+      margin-top: auto;
+    }
+
+    .icon-button {
+      width: 44px;
+      height: 44px;
+      display: grid;
+      place-items: center;
+      padding: 0;
+      border: 0;
+      border-radius: 10px;
+      background: transparent;
+      color: var(--muted);
+    }
+
+    .icon-button.active {
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+
+    .icon {
+      width: 21px;
+      height: 21px;
+      display: block;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.7;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .context-sidebar {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      padding: 30px 18px 20px;
+      background: var(--sidebar);
+      border-right: 1px solid var(--line);
+    }
+
+    .context-title {
+      margin: 4px 12px 26px;
+      font-size: 16px;
+      font-weight: 600;
+      letter-spacing: .01em;
+    }
+
+    .context-label {
+      margin: 0 12px 10px;
+      color: var(--faint);
+      font-size: 11px;
+      font-weight: 650;
+      letter-spacing: .12em;
+    }
+
+    .instance-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .instance-item {
+      position: relative;
+      display: grid;
+      grid-template-columns: 32px minmax(0, 1fr);
+      gap: 10px;
+      align-items: center;
+      min-height: 58px;
+      padding: 8px 12px;
+      border-radius: 10px;
+      color: var(--muted);
+    }
+
+    .instance-item.active {
+      background: var(--surface-active);
+      color: var(--text);
+    }
+
+    .instance-item.active::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 14px;
+      width: 3px;
+      height: 30px;
+      border-radius: 0 3px 3px 0;
+      background: var(--accent);
+    }
+
+    .instance-mark {
+      width: 30px;
+      height: 30px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--line-strong);
+      border-radius: 8px;
+      color: var(--accent);
+    }
+
+    .instance-copy {
+      min-width: 0;
+    }
+
+    .instance-name {
+      overflow: hidden;
+      font-size: 13px;
+      font-weight: 600;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .instance-version {
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .new-instance {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      min-height: 42px;
+      margin-top: 7px;
+      padding: 0 13px;
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      text-align: left;
+    }
+
+    .new-instance .icon {
+      width: 17px;
+      height: 17px;
+    }
+
+    .account {
+      display: grid;
+      grid-template-columns: 32px 1fr;
+      gap: 10px;
+      align-items: center;
+      margin-top: auto;
+      padding: 14px 12px 4px;
+      border-top: 1px solid var(--line);
+    }
+
+    .avatar {
+      width: 31px;
+      height: 31px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--line-strong);
+      border-radius: 50%;
+      color: var(--muted);
+    }
+
+    .account-name {
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .account-status {
+      margin-top: 2px;
+      color: var(--success);
+      font-size: 10px;
+    }
+
+    .main {
+      position: relative;
+      min-width: 0;
+      background: var(--main);
+    }
+
+    .titlebar {
+      height: 66px;
+      display: flex;
+      align-items: center;
+      padding-left: 38px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .window-title {
+      color: var(--muted);
+      font-size: 12px;
+      letter-spacing: .02em;
+    }
+
+    .window-controls {
+      display: flex;
+      align-items: stretch;
+      height: 100%;
+      margin-left: auto;
+    }
+
+    .window-control {
+      width: 46px;
+      display: grid;
+      place-items: center;
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+    }
+
+    .window-control.close {
+      color: var(--danger);
+    }
+
+    .window-control .icon {
+      width: 14px;
+      height: 14px;
+      stroke-width: 1.5;
+    }
+
+    .content {
+      height: calc(100% - 66px);
+      display: flex;
+      flex-direction: column;
+      padding: 58px 58px 28px;
+    }
+
+    .content-head {
+      display: flex;
+      align-items: flex-start;
+      gap: 30px;
+    }
+
+    .eyebrow {
+      margin-bottom: 13px;
+      color: var(--accent);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .16em;
+    }
+
+    .instance-heading {
+      margin: 0;
+      font-family: "Smiley Sans", sans-serif;
+      font-size: clamp(56px, 5.7vw, 86px);
+      font-weight: 400;
+      line-height: .95;
+      letter-spacing: .01em;
+    }
+
+    .head-actions {
+      display: flex;
+      gap: 8px;
+      margin-left: auto;
+    }
+
+    .head-actions .icon-button {
+      border: 1px solid var(--line);
+      background: var(--surface);
+    }
+
+    .specs {
+      display: flex;
+      align-items: stretch;
+      margin-top: 46px;
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .spec {
+      min-width: 160px;
+      padding: 21px 28px 20px 0;
+    }
+
+    .spec + .spec {
+      padding-left: 28px;
+      border-left: 1px solid var(--line);
+    }
+
+    .spec-label {
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 650;
+      letter-spacing: .12em;
+    }
+
+    .spec-value {
+      margin-top: 7px;
+      font-size: 14px;
+      font-weight: 550;
+    }
+
+    .launch {
+      min-width: 188px;
+      height: 54px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      margin: 22px 0 22px auto;
+      padding: 0 26px;
+      border: 0;
+      border-radius: 10px;
+      background: var(--accent);
+      color: var(--accent-ink);
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .launch .icon {
+      width: 18px;
+      height: 18px;
+      fill: currentColor;
+      stroke: none;
+    }
+
+    .section {
+      margin-top: 48px;
+    }
+
+    .section-header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+
+    .section-title {
+      font-size: 13px;
+      font-weight: 650;
+    }
+
+    .section-note {
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .activity-row {
+      display: grid;
+      grid-template-columns: 12px 120px 1fr auto;
+      gap: 14px;
+      align-items: center;
+      min-height: 50px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .activity-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--success);
+    }
+
+    .activity-title {
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    .download-pill {
+      position: absolute;
+      right: 28px;
+      bottom: 24px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 38px;
+      padding: 0 14px;
+      border: 1px solid var(--line-strong);
+      border-radius: 20px;
+      background: var(--surface);
+      color: var(--muted);
+      font-size: 10px;
+    }
+
+    .download-pill .icon {
+      width: 16px;
+      height: 16px;
+      color: var(--accent);
+    }
+
+    .download-pill strong {
+      color: var(--text);
+      font-size: 11px;
+      font-weight: 650;
+    }
+  </style>
+</head>
+<body>
+  <div class="app-window">
+    <aside class="rail" aria-label="主导航">
+      <div class="brand">NaCl</div>
+
+      <nav class="rail-nav">
+        <button class="icon-button" aria-label="首页">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M4 10.5 12 4l8 6.5v8a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5z"/><path d="M9.5 20v-6h5v6"/></svg>
+        </button>
+        <button class="icon-button active" aria-label="实例">
+          <svg class="icon" viewBox="0 0 24 24"><rect x="5" y="4" width="14" height="16" rx="2"/><path d="M8.5 8h7M8.5 12h7M8.5 16h4"/></svg>
+        </button>
+        <button class="icon-button" aria-label="下载">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m7.5 11 4.5 4.5 4.5-4.5"/><path d="M5 20h14"/></svg>
+        </button>
+        <button class="icon-button" aria-label="日志">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></svg>
+        </button>
+      </nav>
+
+      <div class="rail-bottom">
+        <button class="icon-button" aria-label="帮助">
+          <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.8 9.1a2.4 2.4 0 1 1 3.3 2.2c-.8.4-1.1.8-1.1 1.7M12 17h.01"/></svg>
+        </button>
+        <button class="icon-button" aria-label="设置">
+          <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.3 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.7 2.7-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4v-.2a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.3 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3.1 14H3v-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.3 7 7 4.3l.1.1a1.7 1.7 0 0 0 1.9.3 1.7 1.7 0 0 0 1-1.6V3h4v.1a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.7 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.1v4h-.1a1.7 1.7 0 0 0-1.6 1Z"/></svg>
+        </button>
+      </div>
+    </aside>
+
+    <aside class="context-sidebar" aria-label="实例列表">
+      <div class="context-title">实例</div>
+      <div class="context-label">最近使用</div>
+
+      <div class="instance-list">
+        <div class="instance-item active">
+          <div class="instance-mark">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M8 7.5h8M8 12h8M8 16.5h5"/></svg>
+          </div>
+          <div class="instance-copy">
+            <div class="instance-name">原版生存</div>
+            <div class="instance-version">Java Edition · 1.21</div>
+          </div>
+        </div>
+
+        <div class="instance-item">
+          <div class="instance-mark">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M8 7.5h8M8 12h8M8 16.5h5"/></svg>
+          </div>
+          <div class="instance-copy">
+            <div class="instance-name">建筑测试</div>
+            <div class="instance-version">Java Edition · 1.20.6</div>
+          </div>
+        </div>
+      </div>
+
+      <button class="new-instance">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+        <span>添加实例</span>
+      </button>
+
+      <div class="account">
+        <div class="avatar">
+          <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="8" r="3"/><path d="M6 19a6 6 0 0 1 12 0"/></svg>
+        </div>
+        <div>
+          <div class="account-name">Player</div>
+          <div class="account-status">Microsoft 已连接</div>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="titlebar">
+        <div class="window-title">NaCl Launcher</div>
+        <div class="window-controls">
+          <button class="window-control" aria-label="最小化">
+            <svg class="icon" viewBox="0 0 16 16"><path d="M3 8h10"/></svg>
+          </button>
+          <button class="window-control" aria-label="最大化">
+            <svg class="icon" viewBox="0 0 16 16"><rect x="3.5" y="3.5" width="9" height="9" rx=".5"/></svg>
+          </button>
+          <button class="window-control close" aria-label="关闭">
+            <svg class="icon" viewBox="0 0 16 16"><path d="m4 4 8 8M12 4l-8 8"/></svg>
+          </button>
+        </div>
+      </header>
+
+      <section class="content">
+        <div class="content-head">
+          <div>
+            <div class="eyebrow">当前实例</div>
+            <h1 class="instance-heading">原版生存</h1>
+          </div>
+
+          <div class="head-actions">
+            <button class="icon-button" aria-label="刷新">
+              <svg class="icon" viewBox="0 0 24 24"><path d="M19 7v5h-5"/><path d="M18.2 12A6.5 6.5 0 1 1 16 7.2L19 10"/></svg>
+            </button>
+            <button class="icon-button" aria-label="实例设置">
+              <svg class="icon" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="specs">
+          <div class="spec">
+            <div class="spec-label">游戏版本</div>
+            <div class="spec-value">Minecraft 1.21</div>
+          </div>
+          <div class="spec">
+            <div class="spec-label">运行环境</div>
+            <div class="spec-value">Java 21 · x64</div>
+          </div>
+          <div class="spec">
+            <div class="spec-label">内存分配</div>
+            <div class="spec-value">4 GB</div>
+          </div>
+          <button class="launch">
+            <svg class="icon" viewBox="0 0 24 24"><path d="m8 5 11 7-11 7z"/></svg>
+            <span>启动游戏</span>
+          </button>
+        </div>
+
+        <div class="section">
+          <div class="section-header">
+            <div class="section-title">最近活动</div>
+            <div class="section-note">本地实例</div>
+          </div>
+          <div class="activity-row">
+            <span class="activity-dot"></span>
+            <span class="activity-title">上次启动</span>
+            <span>原版生存 · 正常退出</span>
+            <span>昨天 22:41</span>
+          </div>
+        </div>
+      </section>
+
+      <div class="download-pill">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M12 4v10"/><path d="m8 10 4 4 4-4"/><path d="M5 19h14"/></svg>
+        <span>资源检查</span>
+        <strong>已完成</strong>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const requestedTheme = new URLSearchParams(location.search).get("theme");
+    if (requestedTheme === "light" || requestedTheme === "dark") {
+      document.documentElement.dataset.theme = requestedTheme;
+    }
+  </script>
+</body>
+</html>
