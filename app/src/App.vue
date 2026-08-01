@@ -105,6 +105,7 @@ const downloadSettings = ref<DownloadSettings>({
   schemaVersion: 1,
   concurrentDownloads: 4,
   connectionsPerDownload: 4,
+  segmentedDownloadThresholdMib: 8,
   retryCount: 3,
   connectionTimeoutSeconds: 30,
   speedLimitKibPerSecond: 0,
@@ -159,6 +160,10 @@ const launchedInstanceId = ref<string | null>(null);
 const launchError = ref("");
 const lastLaunch = ref<LaunchResult | null>(null);
 const lastExitCode = ref<number | null>(null);
+const requiredJavaMajor = computed(() => {
+  const match = launchError.value.match(/Java\s+(\d+)/i);
+  return match ? Number(match[1]) : null;
+});
 let unlistenInstallProgress: UnlistenFn | null = null;
 let unlistenGameExited: UnlistenFn | null = null;
 let gameStatePoll: number | null = null;
@@ -562,6 +567,10 @@ async function openGameLogs() {
 }
 
 function openInstallPanel(version: MinecraftVersion) {
+  if (installState.value !== "idle") {
+    installPanelOpen.value = true;
+    return;
+  }
   selectedVersion.value = version;
   installError.value = "";
   installProgress.value = null;
@@ -846,6 +855,12 @@ async function loadVersionCatalog(forceRefresh: boolean) {
 }
 
 async function installSelectedVersion(request: { name: string; versionId: string }) {
+  const backendState = await invoke<string>("get_install_status").catch(() => "idle");
+  if (backendState !== "idle") {
+    installState.value = backendState === "paused" ? "paused" : "installing";
+    installError.value = "已有安装任务正在运行，请先完成或取消当前任务";
+    return;
+  }
   installState.value = "installing";
   installCancelledByUser.value = false;
   installError.value = "";
@@ -1054,9 +1069,13 @@ async function installManagedJava(majorVersion: number) {
       preferredJavaPath: runtime.path,
       manageRuntimes: true,
     });
+    if (requiredJavaMajor.value === majorVersion) launchError.value = "";
   } catch (error) {
     javaError.value =
       typeof error === "string" ? error : `Java ${majorVersion} 下载失败`;
+    if (requiredJavaMajor.value === majorVersion) {
+      launchError.value = `Java ${majorVersion} 下载失败：${javaError.value}`;
+    }
   } finally {
     javaDownloadState.value = "idle";
   }
@@ -1104,6 +1123,15 @@ async function loadInstances() {
   }
 }
 
+async function syncInstallStatus() {
+  try {
+    const status = await invoke<string>("get_install_status");
+    installState.value = status === "paused" ? "paused" : status === "idle" ? "idle" : "installing";
+  } catch {
+    // Browser preview has no native backend.
+  }
+}
+
 async function loadOfflineProfile() {
   try {
     offlineProfile.value = await invoke<OfflineProfile | null>("get_offline_profile");
@@ -1136,6 +1164,7 @@ onMounted(async () => {
     void loadLogs();
   }).catch(() => null);
   await loadAppBootstrap();
+  await syncInstallStatus();
   await loadInstances();
   await loadOfflineProfile();
   void loadJavaRuntimes();
@@ -1365,7 +1394,21 @@ watch(
             </div>
             <div v-if="launchError" class="inline-error launch-error">
               <span>{{ launchError }}</span>
+              <button
+                v-if="requiredJavaMajor"
+                class="text-action"
+                :disabled="javaDownloadState === 'downloading'"
+                @click="installManagedJava(requiredJavaMajor)"
+              >
+                {{ javaDownloadState === "downloading" ? "正在下载 Java…" : `下载 Java ${requiredJavaMajor}` }}
+              </button>
               <button class="text-action" @click="openGameLogs">查看游戏日志</button>
+            </div>
+            <div v-else-if="javaDetectionState === 'ready' && javaRuntimes.length === 0" class="inline-error launch-error">
+              <span>{{ javaError || "未检测到 Java。安装游戏时可自动下载，也可现在安装常用的 Java 21。" }}</span>
+              <button class="text-action" :disabled="javaDownloadState === 'downloading'" @click="installManagedJava(21)">
+                {{ javaDownloadState === "downloading" ? "正在下载…" : "下载 Java 21" }}
+              </button>
             </div>
           </div>
 
@@ -1484,6 +1527,14 @@ watch(
         </div>
         <div v-if="launchError" class="inline-error launch-error">
           <span>{{ launchError }}</span>
+          <button
+            v-if="requiredJavaMajor"
+            class="text-action"
+            :disabled="javaDownloadState === 'downloading'"
+            @click="installManagedJava(requiredJavaMajor)"
+          >
+            {{ javaDownloadState === "downloading" ? "正在下载 Java…" : `下载 Java ${requiredJavaMajor}` }}
+          </button>
           <button class="text-action" @click="openGameLogs">查看游戏日志</button>
         </div>
 
@@ -1631,7 +1682,8 @@ watch(
               <div class="progress-track"><span :style="{ width: `${installProgressPercent}%` }"></span></div>
               <span>
                 {{ formatFileSize(installProgress?.downloadedBytes ?? 0) }} 已下载 ·
-                {{ installState === "paused" ? "已暂停" : formatTransferRate(installProgress?.downloadSpeedBytesPerSecond ?? 0) }}
+                {{ installState === "paused" ? "已暂停" : formatTransferRate(installProgress?.downloadSpeedBytesPerSecond ?? 0) }} ·
+                {{ installProgress?.downloadEngine === "segmented" ? `原生分片 ${installProgress.activeConnections} 连接` : installProgress?.downloadEngine === "streaming" ? "流式下载" : "缓存命中" }}
               </span>
             </div>
             <div class="queue-actions">

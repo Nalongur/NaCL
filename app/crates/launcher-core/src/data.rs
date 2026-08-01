@@ -248,6 +248,7 @@ pub struct DownloadSettings {
     pub schema_version: u32,
     pub concurrent_downloads: u8,
     pub connections_per_download: u8,
+    pub segmented_download_threshold_mib: u16,
     pub retry_count: u8,
     pub connection_timeout_seconds: u16,
     pub speed_limit_kib_per_second: u32,
@@ -261,6 +262,7 @@ impl Default for DownloadSettings {
             schema_version: SETTINGS_SCHEMA_VERSION,
             concurrent_downloads: 4,
             connections_per_download: 4,
+            segmented_download_threshold_mib: 8,
             retry_count: 3,
             connection_timeout_seconds: 30,
             speed_limit_kib_per_second: 0,
@@ -433,6 +435,11 @@ fn validate_download_settings(settings: &DownloadSettings) -> DataResult<()> {
     if !(1..=16).contains(&settings.connections_per_download) {
         return Err(DataError::InvalidSettingsValue(
             "connections per download must be between 1 and 16",
+        ));
+    }
+    if !(1..=1024).contains(&settings.segmented_download_threshold_mib) {
+        return Err(DataError::InvalidSettingsValue(
+            "segmented download threshold must be between 1 and 1024 MiB",
         ));
     }
     if settings.retry_count > 10 {

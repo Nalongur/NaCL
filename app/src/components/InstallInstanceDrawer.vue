@@ -80,7 +80,8 @@ watch(
             <div class="progress-track"><span :style="{ width: `${progressPercent}%` }"></span></div>
             <div class="field-hint">
               {{ progress?.currentFile || "连接 Mojang 服务…" }} ·
-              {{ paused ? "已暂停" : formatTransferRate(progress?.downloadSpeedBytesPerSecond ?? 0) }}
+              {{ paused ? "已暂停" : formatTransferRate(progress?.downloadSpeedBytesPerSecond ?? 0) }} ·
+              {{ progress?.downloadEngine === "segmented" ? `原生分片 ${progress.activeConnections} 连接` : progress?.downloadEngine === "streaming" ? "流式下载" : "缓存命中" }}
             </div>
             <div class="install-controls">
               <button v-if="!paused" type="button" class="text-action" @click="emit('pause')">暂停</button>

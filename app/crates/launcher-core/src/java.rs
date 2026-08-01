@@ -1,11 +1,12 @@
-use crate::data::{AppPaths, DataError};
+use crate::data::{load_or_create_download_settings, AppPaths, DataError};
+use crate::downloader::{self, DownloadControl, DownloadOptions, DownloadRequest, TransferUpdate};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use std::env;
 use std::fmt;
 use std::fs;
-use std::io::{self, Read, Write};
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -41,6 +42,8 @@ pub enum JavaError {
     UnsupportedMajor(u16),
     RuntimeUnavailable(u16),
     ChecksumMismatch,
+    Download(String),
+    Cancelled,
     Archive(zip::result::ZipError),
     UnsafeArchiveEntry,
 }
@@ -69,6 +72,8 @@ impl fmt::Display for JavaError {
                 )
             }
             Self::ChecksumMismatch => write!(formatter, "Java 下载校验失败，文件可能不完整"),
+            Self::Download(message) => write!(formatter, "Java 下载失败：{message}"),
+            Self::Cancelled => write!(formatter, "Java 下载已取消"),
             Self::Archive(error) => write!(formatter, "无法读取 Java 压缩包：{error}"),
             Self::UnsafeArchiveEntry => write!(formatter, "Java 压缩包包含不安全的文件路径"),
         }
@@ -110,6 +115,8 @@ struct AdoptiumBinary {
 struct AdoptiumPackage {
     checksum: String,
     link: String,
+    #[serde(default)]
+    size: u64,
 }
 
 pub fn detect_java_runtimes() -> Vec<JavaRuntime> {
@@ -150,6 +157,18 @@ pub fn inspect_java_runtime(path: &Path) -> Result<JavaRuntime, JavaError> {
 }
 
 pub fn install_managed_runtime(major: u16) -> Result<JavaRuntime, JavaError> {
+    install_managed_runtime_controlled(major, &|| DownloadControl::Running, &|_: TransferUpdate| {})
+}
+
+pub fn install_managed_runtime_controlled<F, C>(
+    major: u16,
+    control: &C,
+    progress: &F,
+) -> Result<JavaRuntime, JavaError>
+where
+    F: Fn(TransferUpdate) + Sync,
+    C: Fn() -> DownloadControl + Sync,
+{
     if !(8..=25).contains(&major) {
         return Err(JavaError::UnsupportedMajor(major));
     }
@@ -163,6 +182,7 @@ pub fn install_managed_runtime(major: u16) -> Result<JavaRuntime, JavaError> {
 
     let paths = AppPaths::resolve()?;
     paths.initialize()?;
+    let download_settings = load_or_create_download_settings(&paths)?;
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(180))
         .user_agent("NaCL/0.1")
@@ -201,40 +221,56 @@ pub fn install_managed_runtime(major: u16) -> Result<JavaRuntime, JavaError> {
         .binary
         .package;
 
-    let mut response = client
-        .get(&package.link)
-        .send()
-        .and_then(reqwest::blocking::Response::error_for_status)
-        .map_err(|source| JavaError::Http {
-            action: "下载 Temurin Java",
-            source,
-        })?;
-    let mut archive_file =
+    let archive_file =
         NamedTempFile::new_in(&paths.downloads_dir).map_err(|source| JavaError::Io {
             action: "创建 Java 临时下载文件",
             path: paths.downloads_dir.clone(),
             source,
         })?;
+    downloader::download(
+        &client,
+        DownloadRequest {
+            label: &format!("Temurin Java {major}"),
+            url: &package.link,
+            expected_size: package.size,
+            identity: &package.checksum,
+            temporary_path: archive_file.path(),
+        },
+        DownloadOptions {
+            segment_connections: download_settings.connections_per_download,
+            segment_threshold_bytes: u64::from(download_settings.segmented_download_threshold_mib)
+                * 1024
+                * 1024,
+            retry_count: download_settings.retry_count,
+            speed_limit_kib_per_second: download_settings.speed_limit_kib_per_second,
+        },
+        control,
+        progress,
+    )
+    .map_err(|error| match error {
+        downloader::DownloadError::Cancelled => JavaError::Cancelled,
+        error => JavaError::Download(error.to_string()),
+    })?;
+
+    let mut downloaded_archive = archive_file.reopen().map_err(|source| JavaError::Io {
+        action: "打开 Java 临时下载文件",
+        path: archive_file.path().to_path_buf(),
+        source,
+    })?;
     let mut hasher = Sha256::new();
     let mut buffer = [0_u8; 64 * 1024];
     loop {
-        let read = response.read(&mut buffer).map_err(|source| JavaError::Io {
-            action: "读取 Java 下载内容",
-            path: archive_file.path().to_path_buf(),
-            source,
-        })?;
+        let read = downloaded_archive
+            .read(&mut buffer)
+            .map_err(|source| JavaError::Io {
+                action: "读取 Java 下载内容",
+                path: archive_file.path().to_path_buf(),
+                source,
+            })?;
         if read == 0 {
             break;
         }
         hasher.update(&buffer[..read]);
-        archive_file
-            .as_file_mut()
-            .write_all(&buffer[..read])
-            .map_err(|source| JavaError::Io {
-                action: "写入 Java 临时下载文件",
-                path: archive_file.path().to_path_buf(),
-                source,
-            })?;
     }
     let actual_checksum = format!("{:x}", hasher.finalize());
     if !actual_checksum.eq_ignore_ascii_case(&package.checksum) {
