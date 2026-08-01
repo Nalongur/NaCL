@@ -52,6 +52,7 @@ export interface DownloadSettings {
   schemaVersion: number;
   concurrentDownloads: number;
   connectionsPerDownload: number;
+  segmentedDownloadThresholdMib: number;
   retryCount: number;
   connectionTimeoutSeconds: number;
   speedLimitKibPerSecond: number;
@@ -159,6 +160,8 @@ export interface InstallProgress {
   currentFile: string;
   downloadedBytes: number;
   downloadSpeedBytesPerSecond: number;
+  downloadEngine: "cache" | "segmented" | "streaming";
+  activeConnections: number;
 }
 
 export interface OfflineProfile {

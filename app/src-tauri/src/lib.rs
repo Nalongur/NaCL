@@ -1,6 +1,8 @@
 #[tauri::command]
-fn detect_java_runtimes() -> Vec<launcher_core::java::JavaRuntime> {
-    launcher_core::java::detect_java_runtimes()
+async fn detect_java_runtimes() -> Result<Vec<launcher_core::java::JavaRuntime>, String> {
+    tauri::async_runtime::spawn_blocking(launcher_core::java::detect_java_runtimes)
+        .await
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -212,7 +214,10 @@ fn memory_report() -> Result<launcher_core::system::MemoryReport, String> {
 }
 
 #[tauri::command]
-fn clean_temporary_downloads() -> Result<u64, String> {
+fn clean_temporary_downloads(state: tauri::State<'_, InstallTaskState>) -> Result<u64, String> {
+    if state.0.load(Ordering::SeqCst) != 0 {
+        return Err("安装任务运行期间不能清理临时下载文件".to_string());
+    }
     launcher_core::system::clean_temporary_downloads().map_err(|error| error.to_string())
 }
 
@@ -239,8 +244,10 @@ async fn install_instance(
         .compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst)
         .map_err(|_| "已有安装任务正在运行".to_string())?;
     let control = Arc::clone(&state.0);
-    tauri::async_runtime::spawn_blocking(move || {
-        let result = launcher_core::installer::install_instance_controlled(
+    let reset_control = Arc::clone(&state.0);
+    let joined = tauri::async_runtime::spawn_blocking(move || {
+        let _reset_on_exit = InstallTaskReset(Arc::clone(&control));
+        launcher_core::installer::install_instance_controlled(
             request,
             |progress| {
                 let _ = app.emit("install-progress", progress);
@@ -251,12 +258,21 @@ async fn install_instance(
                 _ => launcher_core::installer::InstallControl::Running,
             },
         )
-        .map_err(|error| error.to_string());
-        control.store(0, Ordering::SeqCst);
-        result
+        .map_err(|error| error.to_string())
     })
-    .await
-    .map_err(|error| error.to_string())?
+    .await;
+    reset_control.store(0, Ordering::SeqCst);
+    joined.map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+fn get_install_status(state: tauri::State<'_, InstallTaskState>) -> &'static str {
+    match state.0.load(Ordering::SeqCst) {
+        1 => "installing",
+        2 => "paused",
+        3 => "cancelling",
+        _ => "idle",
+    }
 }
 
 #[tauri::command]
@@ -314,6 +330,7 @@ pub fn run() {
             diagnostics,
             duplicate_instance,
             get_offline_profile,
+            get_install_status,
             inspect_java_runtime,
             install_managed_java,
             install_instance,
@@ -346,8 +363,43 @@ use tauri::Emitter;
 #[derive(Default)]
 struct InstallTaskState(Arc<AtomicU8>);
 
+struct InstallTaskReset(Arc<AtomicU8>);
+
+impl Drop for InstallTaskReset {
+    fn drop(&mut self) {
+        self.0.store(0, Ordering::SeqCst);
+    }
+}
+
 #[derive(Default)]
 struct GameTaskState(Arc<Mutex<HashMap<String, u32>>>);
+
+#[cfg(test)]
+mod tests {
+    use super::InstallTaskReset;
+    use std::sync::atomic::{AtomicU8, Ordering};
+    use std::sync::Arc;
+
+    #[test]
+    fn install_state_resets_after_normal_exit() {
+        let state = Arc::new(AtomicU8::new(1));
+        {
+            let _reset = InstallTaskReset(Arc::clone(&state));
+        }
+        assert_eq!(state.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn install_state_resets_during_panic_unwind() {
+        let state = Arc::new(AtomicU8::new(1));
+        let unwind_state = Arc::clone(&state);
+        let _ = std::panic::catch_unwind(move || {
+            let _reset = InstallTaskReset(unwind_state);
+            panic!("simulated installer panic");
+        });
+        assert_eq!(state.load(Ordering::SeqCst), 0);
+    }
+}
 
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]

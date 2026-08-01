@@ -158,7 +158,7 @@ pub fn clean_temporary_downloads() -> Result<u64, SystemError> {
     let paths = AppPaths::resolve()?;
     paths.initialize()?;
     let mut removed_bytes = 0_u64;
-    for entry in walkdir::WalkDir::new(&paths.downloads_dir)
+    for entry in walkdir::WalkDir::new(&paths.cache_dir)
         .min_depth(1)
         .into_iter()
         .filter_map(Result::ok)
@@ -172,7 +172,8 @@ pub fn clean_temporary_downloads() -> Result<u64, SystemError> {
             .and_then(|value| value.to_str())
             .unwrap_or_default()
             .to_ascii_lowercase();
-        if extension != "part" && extension != "tmp" {
+        let file_name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+        if extension != "part" && extension != "tmp" && !file_name.ends_with(".part.nacl.json") {
             continue;
         }
         removed_bytes = removed_bytes.saturating_add(entry.metadata().map_or(0, |item| item.len()));

@@ -30,8 +30,12 @@ function update() {
       <input v-model.number="draft.concurrentDownloads" type="number" min="1" max="16" :disabled="saving" @change="update" />
     </label>
     <label class="setting-control">
-      <span><strong>aria2 单文件连接数</strong><small>大文件会分片并行下载；建议使用 4–8</small></span>
+      <span><strong>大文件连接数</strong><small>NaCL 原生分片引擎；建议使用 4–8</small></span>
       <input v-model.number="draft.connectionsPerDownload" type="number" min="1" max="16" :disabled="saving" @change="update" />
+    </label>
+    <label class="setting-control">
+      <span><strong>分片启用阈值</strong><small>MiB；更小的文件使用低开销流式下载</small></span>
+      <input v-model.number="draft.segmentedDownloadThresholdMib" type="number" min="1" max="1024" :disabled="saving" @change="update" />
     </label>
     <label class="setting-control">
       <span><strong>失败重试</strong><small>单个文件下载失败后的自动重试次数</small></span>
