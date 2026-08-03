@@ -1,6 +1,6 @@
 [package]
 name = "nacl-launcher-core"
-version = "0.2.0"
+version = "0.3.0"
 description = "Core launcher services for Na Craft Launcher"
 edition = "2021"
 
@@ -18,7 +18,9 @@ rayon = "1"
 sha1 = "0.10"
 sha2 = "0.10"
 md5 = "0.7"
+base64 = "0.22"
+url = "2"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_System_SystemInformation"] }
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Security_Cryptography", "Win32_System_SystemInformation"] }

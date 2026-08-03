@@ -1,3 +1,4 @@
+use crate::auth::{self, AuthError};
 use crate::data::{load_or_create_settings, AppPaths, DataError};
 use crate::instance::{
     self, InstallationState, InstanceConfig, InstanceError, JavaSelection, WindowMode,
@@ -29,6 +30,27 @@ pub struct OfflineProfile {
 #[serde(rename_all = "camelCase")]
 pub struct LaunchGameRequest {
     pub instance_id: String,
+    #[serde(default)]
+    pub account: LaunchAccountKind,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LaunchAccountKind {
+    Microsoft,
+    #[default]
+    Offline,
+}
+
+#[derive(Debug, Clone)]
+struct LaunchIdentity {
+    username: String,
+    uuid: String,
+    access_token: String,
+    client_id: String,
+    xuid: String,
+    user_type: &'static str,
+    mode_label: &'static str,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -47,6 +69,7 @@ pub struct LaunchedGame {
 
 #[derive(Debug)]
 pub enum LaunchError {
+    Auth(AuthError),
     Data(DataError),
     Instance(InstanceError),
     MissingProfile,
@@ -81,6 +104,7 @@ pub enum LaunchError {
 impl fmt::Display for LaunchError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Auth(error) => error.fmt(formatter),
             Self::Data(error) => error.fmt(formatter),
             Self::Instance(error) => error.fmt(formatter),
             Self::MissingProfile => write!(formatter, "请先创建离线档案"),
@@ -125,6 +149,12 @@ impl std::error::Error for LaunchError {}
 impl From<DataError> for LaunchError {
     fn from(value: DataError) -> Self {
         Self::Data(value)
+    }
+}
+
+impl From<AuthError> for LaunchError {
+    fn from(value: AuthError) -> Self {
+        Self::Auth(value)
     }
 }
 
@@ -246,12 +276,37 @@ pub fn save_offline_profile(username: String) -> Result<OfflineProfile, LaunchEr
 pub fn launch_game(request: LaunchGameRequest) -> Result<LaunchedGame, LaunchError> {
     let paths = AppPaths::resolve()?;
     paths.initialize()?;
-    let profile = load_offline_profile_in(&paths)?.ok_or(LaunchError::MissingProfile)?;
+    let identity = match request.account {
+        LaunchAccountKind::Microsoft => {
+            let online = auth::online_launch_identity()?;
+            LaunchIdentity {
+                username: online.username,
+                uuid: online.uuid,
+                access_token: online.access_token,
+                client_id: online.client_id,
+                xuid: online.xuid,
+                user_type: "msa",
+                mode_label: "Microsoft",
+            }
+        }
+        LaunchAccountKind::Offline => {
+            let profile = load_offline_profile_in(&paths)?.ok_or(LaunchError::MissingProfile)?;
+            LaunchIdentity {
+                username: profile.username,
+                uuid: profile.uuid,
+                access_token: "0".to_string(),
+                client_id: String::new(),
+                xuid: String::new(),
+                user_type: "legacy",
+                mode_label: "offline",
+            }
+        }
+    };
     let instance = instance::list_instances_in(&paths)?
         .into_iter()
         .find(|candidate| candidate.id == request.instance_id)
         .ok_or_else(|| InstanceError::InstanceNotFound(request.instance_id.clone()))?;
-    launch_game_in(&paths, instance, profile)
+    launch_game_in(&paths, instance, identity)
 }
 
 fn load_offline_profile_in(paths: &AppPaths) -> Result<Option<OfflineProfile>, LaunchError> {
@@ -327,7 +382,7 @@ fn offline_uuid(username: &str) -> String {
 fn launch_game_in(
     paths: &AppPaths,
     instance: InstanceConfig,
-    profile: OfflineProfile,
+    identity: LaunchIdentity,
 ) -> Result<LaunchedGame, LaunchError> {
     if instance.installation.state != InstallationState::Ready {
         return Err(LaunchError::InstanceNotReady);
@@ -394,7 +449,7 @@ fn launch_game_in(
         .into_owned();
 
     let replacements = HashMap::from([
-        ("${auth_player_name}", profile.username.clone()),
+        ("${auth_player_name}", identity.username.clone()),
         ("${version_name}", instance.game_version.clone()),
         (
             "${game_directory}",
@@ -405,12 +460,12 @@ fn launch_game_in(
             paths.assets_dir.to_string_lossy().into_owned(),
         ),
         ("${assets_index_name}", metadata.asset_index.id.clone()),
-        ("${auth_uuid}", profile.uuid.clone()),
-        ("${auth_access_token}", "0".to_string()),
-        ("${clientid}", String::new()),
-        ("${auth_xuid}", String::new()),
+        ("${auth_uuid}", identity.uuid.clone()),
+        ("${auth_access_token}", identity.access_token.clone()),
+        ("${clientid}", identity.client_id.clone()),
+        ("${auth_xuid}", identity.xuid.clone()),
         ("${user_properties}", "{}".to_string()),
-        ("${user_type}", "legacy".to_string()),
+        ("${user_type}", identity.user_type.to_string()),
         (
             "${version_type}",
             if metadata.version_type.is_empty() {
@@ -482,10 +537,11 @@ fn launch_game_in(
     let java_executable = launch_java_executable(&java.path);
     writeln!(
         log,
-        "NaCL offline launch: instance={} version={} player={} java={}",
+        "NaCL {} launch: instance={} version={} player={} java={}",
+        identity.mode_label,
         instance.id,
         instance.game_version,
-        profile.username,
+        identity.username,
         java_executable.display()
     )
     .map_err(|source| io_error("写入游戏日志", &log_file, source))?;

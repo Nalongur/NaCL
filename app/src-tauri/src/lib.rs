@@ -35,6 +35,63 @@ fn save_offline_profile(username: String) -> Result<launcher_core::launch::Offli
 }
 
 #[tauri::command]
+fn get_microsoft_account() -> Result<Option<launcher_core::auth::MicrosoftAccount>, String> {
+    launcher_core::auth::load_microsoft_account().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+async fn login_microsoft(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AuthTaskState>,
+) -> Result<launcher_core::auth::MicrosoftAccount, String> {
+    let _ = launcher_core::logs::append_launcher_log("info", "开始 Microsoft 正版登录");
+    if state
+        .0
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return Err("Microsoft 登录已经在进行中".to_string());
+    }
+    let _reset = AuthTaskReset(Arc::clone(&state.0));
+    let session =
+        launcher_core::auth::begin_microsoft_login().map_err(|error| error.to_string())?;
+    use tauri_plugin_opener::OpenerExt;
+    app.opener()
+        .open_url(session.authorization_url(), None::<String>)
+        .map_err(|error| format!("无法打开 Microsoft 登录页面：{error}"))?;
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        launcher_core::auth::complete_microsoft_login(session).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?;
+    match &result {
+        Ok(account) => {
+            let _ = launcher_core::logs::append_launcher_log(
+                "info",
+                &format!(
+                    "Microsoft 正版登录成功，Minecraft 玩家 {}",
+                    account.minecraft_name
+                ),
+            );
+        }
+        Err(error) => {
+            let _ = launcher_core::logs::append_launcher_log(
+                "error",
+                &format!("Microsoft 正版登录失败：{error}"),
+            );
+        }
+    }
+    result
+}
+
+#[tauri::command]
+fn logout_microsoft() -> Result<(), String> {
+    launcher_core::auth::logout_microsoft().map_err(|error| error.to_string())?;
+    let _ = launcher_core::logs::append_launcher_log("info", "已退出 Microsoft 正版账号");
+    Ok(())
+}
+
+#[tauri::command]
 async fn launch_game(
     app: tauri::AppHandle,
     state: tauri::State<'_, GameTaskState>,
@@ -209,6 +266,13 @@ fn storage_report() -> Result<launcher_core::system::StorageReport, String> {
 }
 
 #[tauri::command]
+fn update_storage_paths(
+    settings: launcher_core::data::StoragePathSettings,
+) -> Result<launcher_core::data::StoragePathConfiguration, String> {
+    launcher_core::data::update_storage_paths(settings).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 fn memory_report() -> Result<launcher_core::system::MemoryReport, String> {
     launcher_core::system::memory_report().map_err(|error| error.to_string())
 }
@@ -316,6 +380,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(InstallTaskState::default())
         .manage(GameTaskState::default())
+        .manage(AuthTaskState::default())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
@@ -330,12 +395,14 @@ pub fn run() {
             diagnostics,
             duplicate_instance,
             get_offline_profile,
+            get_microsoft_account,
             get_install_status,
             inspect_java_runtime,
             install_managed_java,
             install_instance,
             is_game_running,
             launch_game,
+            login_microsoft,
             list_instances,
             list_logs,
             load_version_catalog,
@@ -345,18 +412,20 @@ pub fn run() {
             read_log,
             resume_install,
             save_offline_profile,
+            logout_microsoft,
             select_instance,
             set_theme,
             storage_report,
             update_instance,
             update_download_settings,
+            update_storage_paths,
             update_settings
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::Emitter;
 
@@ -373,6 +442,17 @@ impl Drop for InstallTaskReset {
 
 #[derive(Default)]
 struct GameTaskState(Arc<Mutex<HashMap<String, u32>>>);
+
+#[derive(Default)]
+struct AuthTaskState(Arc<AtomicBool>);
+
+struct AuthTaskReset(Arc<AtomicBool>);
+
+impl Drop for AuthTaskReset {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
+}
 
 #[cfg(test)]
 mod tests {

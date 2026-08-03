@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use tempfile::NamedTempFile;
 
 const SETTINGS_SCHEMA_VERSION: u32 = 1;
+const STORAGE_PATHS_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug)]
 pub enum DataError {
@@ -64,6 +65,7 @@ pub struct AppPaths {
     pub config_dir: PathBuf,
     pub settings_file: PathBuf,
     pub download_settings_file: PathBuf,
+    pub storage_paths_file: PathBuf,
     pub instances_dir: PathBuf,
     pub local_root: PathBuf,
     pub cache_dir: PathBuf,
@@ -85,7 +87,9 @@ impl AppPaths {
             .map(PathBuf::from)
             .ok_or(DataError::MissingEnvironment("LOCALAPPDATA"))?;
 
-        Ok(Self::from_roots(roaming, local))
+        let defaults = Self::from_roots(roaming, local);
+        let storage_paths = load_storage_paths(&defaults)?;
+        Ok(defaults.with_storage_paths(&storage_paths))
     }
 
     pub fn from_roots(roaming: PathBuf, local: PathBuf) -> Self {
@@ -97,6 +101,7 @@ impl AppPaths {
         Self {
             settings_file: config_dir.join("settings.json"),
             download_settings_file: config_dir.join("download-settings.json"),
+            storage_paths_file: config_dir.join("storage-paths.json"),
             instances_dir: roaming_root.join("instances"),
             manifests_dir: cache_dir.join("manifests"),
             versions_dir: cache_dir.join("versions"),
@@ -110,6 +115,21 @@ impl AppPaths {
             local_root,
             cache_dir,
         }
+    }
+
+    fn with_storage_paths(mut self, settings: &StoragePathSettings) -> Self {
+        if let Some(path) = &settings.instances_directory {
+            self.instances_dir = path.clone();
+        }
+        if let Some(path) = &settings.cache_directory {
+            self.cache_dir = path.clone();
+            self.manifests_dir = path.join("manifests");
+            self.versions_dir = path.join("versions");
+            self.assets_dir = path.join("assets");
+            self.libraries_dir = path.join("libraries");
+            self.downloads_dir = path.join("downloads");
+        }
+        self
     }
 
     pub fn initialize(&self) -> DataResult<()> {
@@ -276,6 +296,7 @@ impl Default for DownloadSettings {
 #[serde(rename_all = "camelCase")]
 pub struct AppBootstrap {
     pub paths: AppPaths,
+    pub storage_paths: StoragePathSettings,
     pub settings: LauncherSettings,
     pub download_settings: DownloadSettings,
 }
@@ -283,14 +304,228 @@ pub struct AppBootstrap {
 pub fn bootstrap_app() -> DataResult<AppBootstrap> {
     let paths = AppPaths::resolve()?;
     paths.initialize()?;
+    let storage_paths = load_storage_paths(&AppPaths::from_roots(
+        paths
+            .roaming_root
+            .parent()
+            .unwrap_or(&paths.roaming_root)
+            .to_path_buf(),
+        paths
+            .local_root
+            .parent()
+            .unwrap_or(&paths.local_root)
+            .to_path_buf(),
+    ))?;
     let settings = load_or_create_settings(&paths)?;
     let download_settings = load_or_create_download_settings(&paths)?;
 
     Ok(AppBootstrap {
         paths,
+        storage_paths,
         settings,
         download_settings,
     })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct StoragePathSettings {
+    pub schema_version: u32,
+    pub instances_directory: Option<PathBuf>,
+    pub cache_directory: Option<PathBuf>,
+}
+
+impl Default for StoragePathSettings {
+    fn default() -> Self {
+        Self {
+            schema_version: STORAGE_PATHS_SCHEMA_VERSION,
+            instances_directory: None,
+            cache_directory: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StoragePathConfiguration {
+    pub paths: AppPaths,
+    pub storage_paths: StoragePathSettings,
+}
+
+pub fn update_storage_paths(
+    mut settings: StoragePathSettings,
+) -> DataResult<StoragePathConfiguration> {
+    let roaming = env::var_os("APPDATA")
+        .map(PathBuf::from)
+        .ok_or(DataError::MissingEnvironment("APPDATA"))?;
+    let local = env::var_os("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .ok_or(DataError::MissingEnvironment("LOCALAPPDATA"))?;
+    let defaults = AppPaths::from_roots(roaming, local);
+    defaults.initialize()?;
+    settings.schema_version = STORAGE_PATHS_SCHEMA_VERSION;
+    settings.instances_directory = prepare_custom_directory(
+        settings.instances_directory,
+        &defaults.instances_dir,
+        "实例目录",
+    )?;
+    settings.cache_directory =
+        prepare_custom_directory(settings.cache_directory, &defaults.cache_dir, "缓存目录")?;
+    validate_storage_paths(&settings)?;
+    validate_storage_paths_against_defaults(&settings, &defaults)?;
+    save_json_atomically(&defaults, &defaults.storage_paths_file, &settings)?;
+    let paths = defaults.with_storage_paths(&settings);
+    paths.initialize()?;
+    Ok(StoragePathConfiguration {
+        paths,
+        storage_paths: settings,
+    })
+}
+
+fn load_storage_paths(defaults: &AppPaths) -> DataResult<StoragePathSettings> {
+    if !defaults.storage_paths_file.is_file() {
+        return Ok(StoragePathSettings::default());
+    }
+    let contents = fs::read_to_string(&defaults.storage_paths_file).map_err(|source| {
+        io_error(
+            "read storage paths file",
+            &defaults.storage_paths_file,
+            source,
+        )
+    })?;
+    let settings = serde_json::from_str::<StoragePathSettings>(&contents).map_err(|source| {
+        DataError::InvalidSettings {
+            path: defaults.storage_paths_file.clone(),
+            source,
+        }
+    })?;
+    validate_storage_paths(&settings)?;
+    validate_storage_paths_against_defaults(&settings, defaults)?;
+    Ok(settings)
+}
+
+fn prepare_custom_directory(
+    path: Option<PathBuf>,
+    default_path: &Path,
+    label: &'static str,
+) -> DataResult<Option<PathBuf>> {
+    let Some(path) = path else {
+        return Ok(None);
+    };
+    if !path.is_absolute() || path.parent().is_none() {
+        return Err(DataError::InvalidSettingsValue(match label {
+            "实例目录" => "实例目录必须是非磁盘根目录的绝对路径",
+            _ => "缓存目录必须是非磁盘根目录的绝对路径",
+        }));
+    }
+    fs::create_dir_all(&path)
+        .map_err(|source| io_error("create custom directory", &path, source))?;
+    let canonical = fs::canonicalize(&path)
+        .map_err(|source| io_error("resolve custom directory", &path, source))?;
+    let default_canonical =
+        fs::canonicalize(default_path).unwrap_or_else(|_| default_path.to_path_buf());
+    if paths_equal(&canonical, &default_canonical) {
+        Ok(None)
+    } else {
+        Ok(Some(canonical))
+    }
+}
+
+fn validate_storage_paths(settings: &StoragePathSettings) -> DataResult<()> {
+    if settings.schema_version != STORAGE_PATHS_SCHEMA_VERSION {
+        return Err(DataError::InvalidSettingsValue("不支持的存储路径配置版本"));
+    }
+    for path in [
+        settings.instances_directory.as_ref(),
+        settings.cache_directory.as_ref(),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if !path.is_absolute() || path.parent().is_none() {
+            return Err(DataError::InvalidSettingsValue(
+                "自定义存储目录必须是非磁盘根目录的绝对路径",
+            ));
+        }
+    }
+    if let (Some(instances), Some(cache)) = (
+        settings.instances_directory.as_ref(),
+        settings.cache_directory.as_ref(),
+    ) {
+        if paths_overlap(instances, cache) {
+            return Err(DataError::InvalidSettingsValue(
+                "实例目录和缓存目录不能相同或互相包含",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn paths_equal(left: &Path, right: &Path) -> bool {
+    left.to_string_lossy()
+        .trim_end_matches(['\\', '/'])
+        .eq_ignore_ascii_case(right.to_string_lossy().trim_end_matches(['\\', '/']))
+}
+
+fn paths_overlap(left: &Path, right: &Path) -> bool {
+    let left = left
+        .to_string_lossy()
+        .replace('/', "\\")
+        .to_ascii_lowercase();
+    let right = right
+        .to_string_lossy()
+        .replace('/', "\\")
+        .to_ascii_lowercase();
+    let left = left.trim_end_matches('\\');
+    let right = right.trim_end_matches('\\');
+    left == right
+        || left
+            .strip_prefix(right)
+            .is_some_and(|suffix| suffix.starts_with('\\'))
+        || right
+            .strip_prefix(left)
+            .is_some_and(|suffix| suffix.starts_with('\\'))
+}
+
+fn validate_storage_paths_against_defaults(
+    settings: &StoragePathSettings,
+    defaults: &AppPaths,
+) -> DataResult<()> {
+    let instances = settings
+        .instances_directory
+        .as_deref()
+        .unwrap_or(&defaults.instances_dir);
+    let cache = settings
+        .cache_directory
+        .as_deref()
+        .unwrap_or(&defaults.cache_dir);
+    if paths_overlap(instances, cache) {
+        return Err(DataError::InvalidSettingsValue(
+            "实例目录和缓存目录不能相同或互相包含",
+        ));
+    }
+    for custom in [
+        settings.instances_directory.as_deref(),
+        settings.cache_directory.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if [
+            defaults.config_dir.as_path(),
+            defaults.runtimes_dir.as_path(),
+            defaults.logs_dir.as_path(),
+        ]
+        .into_iter()
+        .any(|protected| paths_overlap(custom, protected))
+        {
+            return Err(DataError::InvalidSettingsValue(
+                "自定义实例或缓存目录不能包含 NaCL 的配置、运行环境或日志目录",
+            ));
+        }
+    }
+    Ok(())
 }
 
 pub fn set_theme(theme: Theme) -> DataResult<LauncherSettings> {
@@ -472,7 +707,7 @@ fn io_error(action: &'static str, path: &Path, source: io::Error) -> DataError {
 mod tests {
     use super::{
         load_or_create_download_settings, load_or_create_settings, save_download_settings,
-        save_settings, AppPaths, DownloadSettings, LauncherSettings, Theme,
+        save_settings, AppPaths, DownloadSettings, LauncherSettings, StoragePathSettings, Theme,
         SETTINGS_SCHEMA_VERSION,
     };
     use std::fs;
@@ -572,6 +807,25 @@ mod tests {
         assert_eq!(settings.default_memory_mb, 4096);
         assert_eq!(settings.default_window_width, 1280);
 
+        fs::remove_dir_all(root).expect("temporary tree should be removable");
+    }
+
+    #[test]
+    fn applies_independent_instance_and_cache_roots() {
+        let (root, defaults) = temporary_roots();
+        let instances = root.join("game-instances");
+        let cache = root.join("shared-cache");
+        let paths = defaults.with_storage_paths(&StoragePathSettings {
+            instances_directory: Some(instances.clone()),
+            cache_directory: Some(cache.clone()),
+            ..StoragePathSettings::default()
+        });
+        paths.initialize().expect("custom roots should initialize");
+        assert_eq!(paths.instances_dir, instances);
+        assert_eq!(paths.cache_dir, cache);
+        assert_eq!(paths.versions_dir, cache.join("versions"));
+        assert!(paths.instances_dir.is_dir());
+        assert!(paths.downloads_dir.is_dir());
         fs::remove_dir_all(root).expect("temporary tree should be removable");
     }
 }

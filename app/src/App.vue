@@ -26,9 +26,13 @@ import type {
   MemoryReport,
   LaunchResult,
   OfflineProfile,
+  MicrosoftAccount,
   Page,
   SettingsSection,
   StorageReport,
+  AppPaths,
+  StoragePathSettings,
+  StoragePathConfiguration,
   Theme,
   VersionCatalog,
 } from "./types";
@@ -46,6 +50,7 @@ type ResizeDirection =
 type DownloadSection = "versions" | "queue" | "strategy";
 type LogSection = "launcher" | "game";
 type HelpSection = "diagnostics" | "directories" | "about";
+type AccountMode = "microsoft" | "offline";
 
 interface SettingRow {
   name: string;
@@ -57,12 +62,8 @@ interface SettingRow {
 }
 
 interface AppBootstrap {
-  paths: {
-    roamingRoot: string;
-    localRoot: string;
-    logsDir: string;
-    downloadsDir: string;
-  };
+  paths: AppPaths;
+  storagePaths: StoragePathSettings;
   settings: LauncherSettings;
   downloadSettings: DownloadSettings;
 }
@@ -113,6 +114,11 @@ const downloadSettings = ref<DownloadSettings>({
   verifyAfterDownload: true,
 });
 const appPaths = ref<AppBootstrap["paths"] | null>(null);
+const storagePaths = ref<StoragePathSettings>({
+  schemaVersion: 1,
+  instancesDirectory: null,
+  cacheDirectory: null,
+});
 const instances = ref<LauncherInstance[]>([]);
 const selectedInstanceId = ref<string | null>(null);
 const instancesState = ref<"loading" | "ready" | "unavailable">("loading");
@@ -155,6 +161,10 @@ const offlineEditorOpen = ref(false);
 const offlineUsername = ref("");
 const offlineProfileState = ref<"idle" | "saving">("idle");
 const offlineProfileError = ref("");
+const microsoftAccount = ref<MicrosoftAccount | null>(null);
+const accountMode = ref<AccountMode>("microsoft");
+const microsoftLoginState = ref<"idle" | "waiting" | "signing-out">("idle");
+const microsoftLoginError = ref("");
 const launchState = ref<"idle" | "preparing" | "running">("idle");
 const launchedInstanceId = ref<string | null>(null);
 const launchError = ref("");
@@ -164,6 +174,31 @@ const requiredJavaMajor = computed(() => {
   const match = launchError.value.match(/Java\s+(\d+)/i);
   return match ? Number(match[1]) : null;
 });
+const activeMinecraftSkin = computed(() =>
+  microsoftAccount.value?.skins.find((skin) => skin.state.toLowerCase() === "active")
+    ?? microsoftAccount.value?.skins[0]
+    ?? null,
+);
+const activeMinecraftCape = computed(() =>
+  microsoftAccount.value?.capes.find((cape) => cape.state.toLowerCase() === "active") ?? null,
+);
+const usingMicrosoftAccount = computed(
+  () => accountMode.value === "microsoft" && microsoftAccount.value !== null,
+);
+const currentAccountName = computed(() =>
+  usingMicrosoftAccount.value
+    ? microsoftAccount.value?.minecraftName ?? "Microsoft"
+    : offlineProfile.value?.username ?? "未登录",
+);
+const currentAccountStatus = computed(() =>
+  usingMicrosoftAccount.value
+    ? activeMinecraftCape.value
+      ? `Microsoft 正版 · ${activeMinecraftCape.value.alias || "已启用披风"}`
+      : "Microsoft 正版 · 官方皮肤"
+    : offlineProfile.value
+      ? "离线档案"
+      : "需要登录",
+);
 let unlistenInstallProgress: UnlistenFn | null = null;
 let unlistenGameExited: UnlistenFn | null = null;
 let gameStatePoll: number | null = null;
@@ -368,6 +403,7 @@ const launchButtonText = computed(() => {
   ) {
     return "游戏运行中";
   }
+  if (usingMicrosoftAccount.value) return "正版启动";
   return offlineProfile.value ? "离线启动" : "先登录再启动";
 });
 
@@ -375,7 +411,10 @@ const launchButtonTitle = computed(() => {
   if (selectedInstance.value?.installation.state !== "ready") {
     return "请从下载页重新安装";
   }
-  if (!offlineProfile.value) return "创建本地离线档案后启动";
+  if (usingMicrosoftAccount.value) {
+    return `以 ${microsoftAccount.value?.minecraftName ?? "Microsoft 账号"} 正版启动`;
+  }
+  if (!offlineProfile.value) return "连接 Microsoft 或创建本地离线档案后启动";
   return `以 ${offlineProfile.value.username} 离线启动`;
 });
 
@@ -499,9 +538,62 @@ function beginAddInstance() {
 }
 
 function openOfflineEditor() {
+  accountMode.value = "offline";
   offlineUsername.value = offlineProfile.value?.username ?? "";
   offlineProfileError.value = "";
   offlineEditorOpen.value = true;
+}
+
+async function connectMicrosoft() {
+  if (microsoftLoginState.value !== "idle") return;
+  microsoftLoginState.value = "waiting";
+  microsoftLoginError.value = "";
+  try {
+    microsoftAccount.value = await invoke<MicrosoftAccount>("login_microsoft");
+    accountMode.value = "microsoft";
+  } catch (error) {
+    microsoftLoginError.value = typeof error === "string" ? error : "Microsoft 登录失败";
+  } finally {
+    microsoftLoginState.value = "idle";
+  }
+}
+
+async function logoutMicrosoft() {
+  if (!microsoftAccount.value || !window.confirm("退出 Microsoft 正版账号并删除本机保存的登录凭据？")) return;
+  microsoftLoginState.value = "signing-out";
+  microsoftLoginError.value = "";
+  try {
+    await invoke("logout_microsoft");
+    microsoftAccount.value = null;
+    accountMode.value = "offline";
+  } catch (error) {
+    microsoftLoginError.value = typeof error === "string" ? error : "无法退出 Microsoft 账号";
+  } finally {
+    microsoftLoginState.value = "idle";
+  }
+}
+
+function useOfflineAccount() {
+  accountMode.value = "offline";
+  if (!offlineProfile.value) openOfflineEditor();
+}
+
+function useMicrosoftAccount() {
+  if (microsoftAccount.value) {
+    accountMode.value = "microsoft";
+  } else {
+    void connectMicrosoft();
+  }
+}
+
+function skinLayerStyle(layer: "face" | "hat") {
+  const url = activeMinecraftSkin.value?.url;
+  if (!url) return {};
+  return {
+    backgroundImage: `url("${url.replace(/"/g, "%22")}")`,
+    backgroundSize: "800% 800%",
+    backgroundPosition: layer === "face" ? "14.2857% 14.2857%" : "71.4286% 14.2857%",
+  };
 }
 
 function closeOfflineEditor() {
@@ -529,7 +621,10 @@ async function saveOfflineProfile() {
 async function startSelectedGame() {
   const instance = selectedInstance.value;
   if (!instance || instance.installation.state !== "ready") return;
-  if (!offlineProfile.value) {
+  if (accountMode.value === "microsoft" && !microsoftAccount.value) {
+    await connectMicrosoft();
+    if (!microsoftAccount.value) return;
+  } else if (accountMode.value === "offline" && !offlineProfile.value) {
     openOfflineEditor();
     return;
   }
@@ -541,7 +636,10 @@ async function startSelectedGame() {
   lastExitCode.value = null;
   try {
     const result = await invoke<LaunchResult>("launch_game", {
-      request: { instanceId: instance.id },
+      request: {
+        instanceId: instance.id,
+        account: usingMicrosoftAccount.value ? "microsoft" : "offline",
+      },
     });
     lastLaunch.value = result;
     if (
@@ -802,7 +900,7 @@ async function cleanTemporaryDownloads() {
 }
 
 async function openDirectory(
-  target: "data" | "logs" | "cache" | "downloads" | "instance",
+  target: "data" | "logs" | "cache" | "downloads" | "instances" | "instance",
 ) {
   try {
     await invoke("open_directory", {
@@ -812,6 +910,48 @@ async function openDirectory(
   } catch {
     // The visible page already exposes the path for manual access.
   }
+}
+
+async function applyStoragePaths(next: StoragePathSettings) {
+  maintenanceState.value = "working";
+  settingsSaveError.value = "";
+  try {
+    const configuration = await invoke<StoragePathConfiguration>("update_storage_paths", {
+      settings: next,
+    });
+    appPaths.value = configuration.paths;
+    storagePaths.value = configuration.storagePaths;
+    await Promise.all([loadInstances(), loadStorage()]);
+    versionCatalog.value = null;
+    versionState.value = "idle";
+    maintenanceState.value = "done";
+  } catch (error) {
+    maintenanceState.value = "error";
+    settingsSaveError.value = typeof error === "string" ? error : "无法更新存储目录";
+  }
+}
+
+async function browseStorageDirectory(target: "instances" | "cache") {
+  const selected = await open({
+    multiple: false,
+    directory: true,
+    title: target === "instances" ? "选择游戏实例安装目录" : "选择共享缓存保存目录",
+    defaultPath: target === "instances" ? appPaths.value?.instancesDir : appPaths.value?.cacheDir,
+  });
+  if (!selected) return;
+  await applyStoragePaths({
+    ...storagePaths.value,
+    instancesDirectory: target === "instances" ? selected : storagePaths.value.instancesDirectory,
+    cacheDirectory: target === "cache" ? selected : storagePaths.value.cacheDirectory,
+  });
+}
+
+async function resetStorageDirectory(target: "instances" | "cache") {
+  await applyStoragePaths({
+    ...storagePaths.value,
+    instancesDirectory: target === "instances" ? null : storagePaths.value.instancesDirectory,
+    cacheDirectory: target === "cache" ? null : storagePaths.value.cacheDirectory,
+  });
 }
 
 async function copyDiagnostics() {
@@ -1098,6 +1238,7 @@ async function loadAppBootstrap() {
     launcherSettings.value = bootstrap.settings;
     downloadSettings.value = bootstrap.downloadSettings;
     appPaths.value = bootstrap.paths;
+    storagePaths.value = bootstrap.storagePaths;
     theme.value = bootstrap.settings.theme;
     selectedInstanceId.value = bootstrap.settings.selectedInstanceId;
     currentPage.value = bootstrap.settings.defaultPage;
@@ -1140,6 +1281,17 @@ async function loadOfflineProfile() {
   }
 }
 
+async function loadMicrosoftAccount() {
+  try {
+    microsoftAccount.value = await invoke<MicrosoftAccount | null>("get_microsoft_account");
+    accountMode.value = microsoftAccount.value ? "microsoft" : "offline";
+  } catch (error) {
+    microsoftAccount.value = null;
+    accountMode.value = "offline";
+    microsoftLoginError.value = typeof error === "string" ? error : "无法读取 Microsoft 账号";
+  }
+}
+
 onMounted(async () => {
   document.documentElement.dataset.theme = theme.value;
   window.addEventListener("keydown", handleGlobalKeydown);
@@ -1167,6 +1319,7 @@ onMounted(async () => {
   await syncInstallStatus();
   await loadInstances();
   await loadOfflineProfile();
+  await loadMicrosoftAccount();
   void loadJavaRuntimes();
   void loadMemoryReport();
   gameStatePoll = window.setInterval(() => void reconcileGameState(), 1500);
@@ -1294,10 +1447,14 @@ watch(
       </div>
 
       <div class="account-summary">
-        <div class="avatar"><FlatIcon name="user" /></div>
+        <div v-if="usingMicrosoftAccount && activeMinecraftSkin" class="avatar skin-avatar skin-avatar--small">
+          <span class="skin-layer" :style="skinLayerStyle('face')"></span>
+          <span class="skin-layer skin-layer--hat" :style="skinLayerStyle('hat')"></span>
+        </div>
+        <div v-else class="avatar"><FlatIcon name="user" /></div>
         <div>
-          <div class="account-name">{{ offlineProfile?.username ?? "未登录" }}</div>
-          <div class="account-status">{{ offlineProfile ? "离线档案" : "需要本地档案" }}</div>
+          <div class="account-name">{{ currentAccountName }}</div>
+          <div class="account-status">{{ currentAccountStatus }}</div>
         </div>
       </div>
     </aside>
@@ -1416,7 +1573,11 @@ watch(
             <div class="profile-label">当前账号</div>
             <div class="profile-main">
               <div class="skin-avatar" aria-label="玩家头像预览">
-                <svg viewBox="0 0 16 16" shape-rendering="crispEdges" role="img" aria-label="占位玩家头像">
+                <template v-if="usingMicrosoftAccount && activeMinecraftSkin">
+                  <span class="skin-layer" :style="skinLayerStyle('face')"></span>
+                  <span class="skin-layer skin-layer--hat" :style="skinLayerStyle('hat')"></span>
+                </template>
+                <svg v-else viewBox="0 0 16 16" shape-rendering="crispEdges" role="img" aria-label="占位玩家头像">
                   <rect width="16" height="16" fill="#1b777b" />
                   <rect x="2" y="2" width="12" height="12" fill="#d8a980" />
                   <rect x="2" y="2" width="12" height="3" fill="#20292b" />
@@ -1431,22 +1592,33 @@ watch(
                 </svg>
               </div>
               <div>
-                <div class="profile-name">{{ offlineProfile?.username ?? "尚未登录" }}</div>
+                <div class="profile-name">{{ currentAccountName }}</div>
                 <div class="provider">
                   <span class="provider-dot"></span>
-                  {{ offlineProfile ? "离线档案" : "仅保存在本机" }}
+                  {{ usingMicrosoftAccount ? "Microsoft 正版账号" : offlineProfile ? "离线档案" : "仅保存在本机" }}
                 </div>
                 <div class="account-status">
-                  {{ offlineProfile ? "可启动离线游戏" : "创建档案后即可启动" }}
+                  {{ usingMicrosoftAccount
+                    ? activeMinecraftCape
+                      ? `官方皮肤 · 披风 ${activeMinecraftCape.alias || "已启用"}`
+                      : "官方皮肤 · 当前未启用披风"
+                    : offlineProfile ? "可启动离线游戏" : "连接 Microsoft 或创建离线档案" }}
                 </div>
               </div>
             </div>
             <div class="profile-actions">
-              <button class="profile-action" disabled>连接 Microsoft</button>
-              <button class="profile-action" @click="openOfflineEditor">
-                {{ offlineProfile ? "修改离线档案" : "离线登录" }}
+              <button class="profile-action" :disabled="microsoftLoginState !== 'idle'" @click="connectMicrosoft">
+                {{ microsoftLoginState === "waiting" ? "等待浏览器登录…" : microsoftAccount ? "切换 Microsoft" : "连接 Microsoft" }}
               </button>
+              <button v-if="microsoftAccount && !usingMicrosoftAccount" class="profile-action" @click="useMicrosoftAccount">
+                使用正版账号
+              </button>
+              <button class="profile-action" @click="useOfflineAccount">
+                {{ offlineProfile ? (usingMicrosoftAccount ? "使用离线档案" : "修改离线档案") : "离线登录" }}
+              </button>
+              <button v-if="microsoftAccount" class="profile-action" :disabled="microsoftLoginState !== 'idle'" @click="logoutMicrosoft">退出正版账号</button>
             </div>
+            <div v-if="microsoftLoginError" class="inline-error">{{ microsoftLoginError }}</div>
             <form
               v-if="offlineEditorOpen"
               class="offline-profile-form"
@@ -1815,12 +1987,16 @@ watch(
           :java-error="javaError"
           :memory-report="memoryReport"
           :memory-state="memoryState"
+          :paths="appPaths"
+          :storage-paths="storagePaths"
           @update="updateLauncherSettings"
           @open-directory="openDirectory"
           @clean-downloads="cleanTemporaryDownloads"
           @rescan-java="loadJavaRuntimes"
           @browse-java="browseJavaRuntime"
           @install-java="installManagedJava"
+          @browse-storage="browseStorageDirectory"
+          @reset-storage="resetStorageDirectory"
         />
       </section>
 
