@@ -628,6 +628,7 @@ button:focus-visible {
 }
 
 .skin-avatar {
+  position: relative;
   width: 82px;
   height: 82px;
   flex: 0 0 auto;
@@ -671,6 +672,23 @@ button:focus-visible {
   margin-top: 24px;
   padding-top: 17px;
   border-top: 1px solid var(--line);
+}
+
+.skin-layer {
+  position: absolute;
+  inset: 0;
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+}
+
+.skin-layer--hat {
+  z-index: 1;
+}
+
+.skin-avatar--small {
+  width: 31px;
+  height: 31px;
+  border-radius: 50%;
 }
 
 .offline-profile-form {

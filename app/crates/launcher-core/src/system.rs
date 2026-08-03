@@ -14,6 +14,7 @@ pub enum DirectoryTarget {
     Logs,
     Cache,
     Downloads,
+    Instances,
     Instance,
 }
 
@@ -158,7 +159,7 @@ pub fn clean_temporary_downloads() -> Result<u64, SystemError> {
     let paths = AppPaths::resolve()?;
     paths.initialize()?;
     let mut removed_bytes = 0_u64;
-    for entry in walkdir::WalkDir::new(&paths.cache_dir)
+    for entry in walkdir::WalkDir::new(&paths.downloads_dir)
         .min_depth(1)
         .into_iter()
         .filter_map(Result::ok)
@@ -197,6 +198,7 @@ pub fn open_directory(
         DirectoryTarget::Logs => paths.logs_dir,
         DirectoryTarget::Cache => paths.cache_dir,
         DirectoryTarget::Downloads => paths.downloads_dir,
+        DirectoryTarget::Instances => paths.instances_dir,
         DirectoryTarget::Instance => {
             let id = instance_id.ok_or(SystemError::MissingInstanceId)?;
             let exists = instance::list_instances_in(&paths)?

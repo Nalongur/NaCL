@@ -7,11 +7,11 @@ NaCL is a minimalist Minecraft: Java Edition launcher for Windows, built with Ta
 版本变更见[更新日志](CHANGELOG.md)。See the [changelog](CHANGELOG.md) for release notes.
 
 > [!IMPORTANT]
-> **开发状态 / Development status: Pre-alpha**
+> **第一阶段正式版 / Stage 1 Release: NaCL 0.3.0**
 >
-> 当前仓库用于公开开发和技术预览。离线档案与原版离线启动已接入，但 Microsoft 登录、文件修复和完整异常恢复尚未完成，也没有面向普通玩家发布的稳定安装包。请勿将当前源码构建视为可替代官方启动器的日常版本。
+> NaCL 0.3.0 是项目的第一个公开阶段版本，提供 Windows 便携程序与安装包。原版安装、离线启动、Microsoft 正版登录与在线启动已经接入，并完成了一次真实账号、官方皮肤/披风资料和单人世界启动回归验证。文件修复、完整异常恢复、代码签名和广泛版本兼容验证仍未完成；重要存档仍建议使用官方启动器并自行备份。
 >
-> This repository is for public development and technical preview. Offline profiles and vanilla offline launch are connected, but Microsoft sign-in, file repair, and complete failure recovery are unfinished. No stable end-user installer is available. Do not treat current source builds as a daily-use replacement for the official launcher.
+> NaCL 0.3.0 is the project's first public stage release, with a Windows portable build and installers. Vanilla installation, offline launch, Microsoft sign-in, authenticated launch, official skin/cape profile loading, and a real single-player launch regression have been verified once. File repair, complete failure recovery, code signing, and broad version compatibility testing remain unfinished; use the official launcher and keep backups for important worlds.
 
 > [!NOTE]
 > **NaCL 不是 Minecraft 官方产品，未经 Mojang 或 Microsoft 批准，也不与其存在关联。**
@@ -19,6 +19,12 @@ NaCL is a minimalist Minecraft: Java Edition launcher for Windows, built with Ta
 > **NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.**
 
 ![NaCL 深色首页 / NaCL dark home page](design/renders/nacl-app-home-dark.png)
+
+## 下载 / Download
+
+请从 [GitHub Releases](https://github.com/Nalongur/NaCL/releases) 获取 0.3.0。首个 Release 提供便携版、NSIS 安装程序与 MSI 安装程序；当前构建尚未进行代码签名，Windows 可能显示 SmartScreen 提示。
+
+Download 0.3.0 from [GitHub Releases](https://github.com/Nalongur/NaCL/releases). The first release includes a portable executable, an NSIS installer, and an MSI installer. The binaries are not code-signed yet, so Windows may display a SmartScreen warning.
 
 ## 项目状态 / Project status
 
@@ -39,22 +45,22 @@ NaCL is a minimalist Minecraft: Java Edition launcher for Windows, built with Ta
 | 实例管理 | 部分完成 | 支持创建、配置、复制、删除和打开实例目录；实例修复、导入导出和运行状态管理仍待完善 |
 | Java 管理 | 部分完成 | 支持检测本机 Java、手动选择可执行文件和下载托管 Eclipse Temurin；版本与游戏版本的最终匹配策略仍待完善 |
 | 内存设置 | 可用 | 检测设备物理内存，并为实例提供受约束的内存分配滑块 |
-| 下载策略 | 可用 | 使用随应用分发的 aria2 执行单文件分片下载，支持文件并发数、单文件连接数、重试、超时、限速和实时速度显示，并强制执行下载后完整性校验 |
+| 下载策略 | 可用 | 使用 Rust 原生 Range 分片与流式回退引擎，支持断点状态、多连接、重试、限速、实时速度和下载后完整性校验；不依赖外置 aria2 |
 | 日志与诊断 | 部分完成 | 支持本地日志查看、删除、保留期清理、目录打开和存储占用诊断；尚无自动崩溃上报 |
-| Microsoft 登录 | 未实现 | Entra 应用已准备申请资格；待 Minecraft Java Edition Game Service API 获批后接入官方 OAuth 流程 |
+| 存储路径 | 可用 | 实例安装目录与共享缓存目录可独立选择并恢复默认；切换时不会自动移动或删除旧数据 |
+| Microsoft 登录 | 部分完成 | 使用系统浏览器、授权码与 PKCE 完成 Microsoft、Xbox、XSTS 和 Minecraft Services 认证；刷新令牌由 Windows 当前用户级 DPAPI 加密保存 |
 | 离线档案 | 可用 | 可创建和修改仅保存在本机的用户名与稳定 UUID；不验证 Minecraft 所有权，也不能替代 Microsoft 登录 |
-| 游戏启动 | 部分完成 | 可按官方版本元数据组合 classpath、JVM/游戏参数和离线身份，解压 Windows 原生库、启动 Java 进程并记录输出；尚缺修复、崩溃归因和 Microsoft 在线启动 |
+| 游戏启动 | 部分完成 | 支持离线身份与 Microsoft 正版身份启动，向游戏传入官方玩家名、UUID 和短期访问令牌，使游戏读取账号当前皮肤与披风；尚缺文件修复和完整崩溃归因 |
 | Forge、Fabric 与模组 | 暂不纳入 | 不属于当前原版首版范围；实例数据结构与页面布局为后续扩展保留空间 |
 
-当前适合测试界面交互、版本目录、原版文件安装、离线档案与原版离线启动、Java 管理、实例配置和本地诊断。不适合使用真实 Microsoft 账号启动游戏，也不提供可下载的稳定发行版。
+0.3.0 是第一个可公开下载的阶段版本，适合体验界面交互、原版文件安装、离线与 Microsoft 正版启动、Java 管理、自定义存储路径、实例配置和本地诊断。它仍是早期版本，不代表已经达到完整启动器的长期稳定标准。
 
 计划中的开发顺序：
 
-1. 完成 Microsoft API 资格申请和官方登录流程
-2. 完成 Minecraft 资格校验、档案读取与安全令牌存储
-3. 完善启动失败恢复、文件修复、崩溃归因和日志脱敏
-4. 产出首个可测试安装包并扩大原版版本兼容测试
-5. 在原版启动稳定后，再讨论 Forge、Fabric 与模组管理
+1. 扩大 Microsoft 正版登录、在线启动与原版版本兼容回归
+2. 完善启动失败恢复、文件修复、崩溃归因和日志脱敏
+3. 增加代码签名、安装升级与发布自动化
+4. 在原版启动稳定后，再讨论 Forge、Fabric 与模组管理
 
 ### English
 
@@ -73,24 +79,24 @@ Status definitions:
 | Instance management | Partial | Creates, configures, copies, deletes, and opens instance directories; repair, import/export, and running-state management remain unfinished |
 | Java management | Partial | Detects local Java installations, supports manual executable selection, and downloads managed Eclipse Temurin runtimes; final game-to-Java compatibility policy remains unfinished |
 | Memory settings | Available | Detects physical memory and exposes a constrained per-instance allocation slider |
-| Download behavior | Available | Uses the bundled aria2 executable for segmented downloads, configures file concurrency, per-file connections, retries, timeout, and bandwidth limits, displays live throughput, and enforces post-download integrity verification |
+| Download behavior | Available | Uses a native Rust Range-segmented downloader with resumable state and streaming fallback, including multiple connections, retries, bandwidth limits, live throughput, and integrity verification; no external aria2 executable is required |
 | Logs and diagnostics | Partial | Lists, reads, deletes, and expires local logs and reports storage use; automatic crash reporting is not included |
-| Microsoft sign-in | Not implemented | The Entra application is prepared for review; official OAuth integration depends on Minecraft Java Edition Game Service API approval |
+| Storage paths | Available | Instance installation and shared-cache directories can be selected independently and reset to defaults; switching does not automatically move or delete old data |
+| Microsoft sign-in | Partial | Uses the system browser with authorization code and PKCE, then completes Microsoft, Xbox, XSTS, and Minecraft Services authentication; the refresh token is protected with Windows current-user DPAPI |
 | Offline profiles | Available | Creates and edits a local-only username and stable UUID; it does not verify Minecraft ownership or replace Microsoft sign-in |
-| Game launch | Partial | Builds the classpath, JVM/game arguments, and offline identity from official metadata, extracts Windows natives, starts Java, and records process output; repair, crash attribution, and Microsoft online launch remain unfinished |
+| Game launch | Partial | Launches with either an offline identity or an authenticated Microsoft identity and supplies the official name, UUID, and short-lived token so the game can load the account's active skin and cape; repair and complete crash attribution remain unfinished |
 | Forge, Fabric, and mods | Out of current scope | Excluded from the first vanilla-focused release; the instance model and layout retain room for later extension |
 
-The current build is suitable for testing UI behavior, version discovery, vanilla file installation, offline profiles and vanilla offline launch, Java management, instance settings, and local diagnostics. It is not suitable for launching with a real Microsoft account, and no stable downloadable release is provided.
+NaCL 0.3.0 is the first publicly downloadable stage release. It is suitable for trying the interface, vanilla installation, offline and Microsoft-authenticated launch, Java management, custom storage paths, instance settings, and local diagnostics. It remains an early release and does not yet meet the long-term stability standard of a complete launcher.
 
 Planned development order:
 
-1. Complete the Microsoft API eligibility process and official sign-in flow
-2. Add Minecraft entitlement checks, profile retrieval, and protected token storage
-3. Improve launch recovery, file repair, crash attribution, and log redaction
-4. Produce the first testable installer and broaden vanilla-version compatibility testing
-5. Discuss Forge, Fabric, and mod management after the vanilla launch path is stable
+1. Expand Microsoft sign-in, authenticated launch, and vanilla-version regression coverage
+2. Improve launch recovery, file repair, crash attribution, and log redaction
+3. Add code signing, installer upgrades, and release automation
+4. Discuss Forge, Fabric, and mod management after the vanilla launch path is stable
 
-See the bilingual [Privacy Notice / 隐私说明](PRIVACY.md) for local data, network requests, third-party services, and the planned Microsoft authentication flow.
+See the bilingual [Privacy Notice / 隐私说明](PRIVACY.md) for local data, network requests, third-party services, and Microsoft authentication handling.
 
 ## 技术栈 / Technology
 
@@ -99,15 +105,11 @@ See the bilingual [Privacy Notice / 隐私说明](PRIVACY.md) for local data, ne
 - TypeScript：前端类型与组件逻辑 / frontend types and component logic
 - Rust：实例、下载、Java、存储和诊断核心 / instance, download, Java, storage, and diagnostics core
 
-## 第三方下载组件 / Third-party download component
+## 下载实现 / Download implementation
 
-Windows x64 构建随应用分发未经修改的 aria2 1.37.0 官方可执行文件。aria2
-采用 GNU GPL v2 或更高版本授权；其来源说明与完整许可文本保存在
-`app/src-tauri/resources/aria2/`。
+NaCL 使用项目内的 Rust 原生下载器，根据服务器 Range 能力和文件大小在分片与流式模式之间选择。构建和运行均不需要 `aria2c.exe`。
 
-The Windows x64 build bundles the unmodified official aria2 1.37.0 executable.
-aria2 is licensed under GNU GPL v2 or later; its source attribution and complete
-license text are included under `app/src-tauri/resources/aria2/`.
+NaCL uses its in-project native Rust downloader and selects segmented or streaming mode according to server Range support and file size. Neither building nor running NaCL requires `aria2c.exe`.
 
 ## 目录结构 / Repository layout
 
@@ -170,13 +172,13 @@ A successful build only confirms the corresponding source checks. It does not ve
 
 ## 本地数据 / Local data
 
-用户设置和实例配置默认保存在 `%APPDATA%\NaCL`；可重新下载的版本数据、Java 运行环境、临时下载和日志默认保存在 `%LOCALAPPDATA%\NaCL`。构建产物不会提交到仓库。
+用户设置默认保存在 `%APPDATA%\NaCL`；实例安装目录与共享缓存目录可在设置页独立更改。Java 运行环境和日志仍默认保存在 `%LOCALAPPDATA%\NaCL`。切换路径不会自动搬移旧数据，构建产物不会提交到仓库。
 
-User settings and instance configuration are stored under `%APPDATA%\NaCL` by default. Re-downloadable version data, managed Java runtimes, temporary downloads, and logs are stored under `%LOCALAPPDATA%\NaCL` by default. Build artifacts are not committed.
+User settings remain under `%APPDATA%\NaCL` by default. Instance installation and shared-cache directories can be changed independently in Settings. Managed Java and logs remain under `%LOCALAPPDATA%\NaCL` by default. Switching paths does not automatically move old data, and build artifacts are not committed.
 
-未来的 Microsoft 登录不会在 NaCL 内收集密码。短期访问令牌只用于用户主动发起的身份验证、Minecraft 资格校验和启动流程；刷新令牌计划使用 Windows 用户级加密保护。完整的数据清单、联网目标与删除方法见 [`PRIVACY.md`](PRIVACY.md)。
+Microsoft 登录始终在系统浏览器的微软官方页面进行，NaCL 不收集密码。短期访问令牌只用于身份验证、Minecraft 资格校验、档案读取和用户主动启动；刷新令牌使用 Windows 当前用户级 DPAPI 加密，并在退出账号时删除。完整的数据清单、联网目标与删除方法见 [`PRIVACY.md`](PRIVACY.md)。
 
-The planned Microsoft sign-in flow will never collect a Microsoft password inside NaCL. Short-lived access tokens will only support user-initiated authentication, Minecraft entitlement checks, and launch. Refresh tokens are planned to use Windows user-scoped protection. See [`PRIVACY.md`](PRIVACY.md) for the full data inventory, network destinations, and deletion instructions.
+Microsoft sign-in always occurs on Microsoft's official page in the system browser; NaCL does not collect passwords. Short-lived tokens are used only for authentication, entitlement checks, profile retrieval, and user-initiated launch. The refresh token is encrypted with Windows current-user DPAPI and deleted on sign-out. See [`PRIVACY.md`](PRIVACY.md) for the full data inventory, network destinations, and deletion instructions.
 
 ## 字体 / Typeface
 

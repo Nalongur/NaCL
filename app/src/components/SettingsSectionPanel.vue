@@ -5,6 +5,8 @@ import type {
   LauncherSettings,
   MemoryReport,
   SettingsSection,
+  AppPaths,
+  StoragePathSettings,
 } from "../types";
 
 const props = defineProps<{
@@ -18,15 +20,19 @@ const props = defineProps<{
   javaError: string;
   memoryReport: MemoryReport | null;
   memoryState: "loading" | "ready" | "unavailable";
+  paths: AppPaths | null;
+  storagePaths: StoragePathSettings;
 }>();
 
 const emit = defineEmits<{
   update: [settings: LauncherSettings];
-  openDirectory: [target: "data" | "cache" | "logs"];
+  openDirectory: [target: "data" | "cache" | "logs" | "instances"];
   cleanDownloads: [];
   rescanJava: [];
   browseJava: [];
   installJava: [majorVersion: number];
+  browseStorage: [target: "instances" | "cache"];
+  resetStorage: [target: "instances" | "cache"];
 }>();
 
 const draft = ref<LauncherSettings>({ ...props.settings });
@@ -308,14 +314,29 @@ function useRecommendedMemory() {
     </template>
 
     <template v-else-if="section === 'storage'">
-      <div class="setting-control">
-        <span><strong>配置与实例目录</strong><small>保存全局配置、实例配置和游戏目录</small></span>
-        <button class="setting-action" @click="emit('openDirectory', 'data')">打开</button>
+      <div class="setting-control setting-control--tall">
+        <span>
+          <strong>游戏实例安装目录</strong>
+          <small>{{ paths?.instancesDir ?? "正在读取目录…" }}</small>
+        </span>
+        <div class="java-picker-actions">
+          <button class="setting-action" @click="emit('openDirectory', 'instances')">打开</button>
+          <button class="setting-action" :disabled="saving" @click="emit('browseStorage', 'instances')">更改</button>
+          <button v-if="storagePaths.instancesDirectory" class="setting-action" :disabled="saving" @click="emit('resetStorage', 'instances')">恢复默认</button>
+        </div>
       </div>
-      <div class="setting-control">
-        <span><strong>共享缓存目录</strong><small>客户端、依赖库、资源和版本元数据</small></span>
-        <button class="setting-action" @click="emit('openDirectory', 'cache')">打开</button>
+      <div class="setting-control setting-control--tall">
+        <span>
+          <strong>共享缓存保存目录</strong>
+          <small>{{ paths?.cacheDir ?? "正在读取目录…" }}</small>
+        </span>
+        <div class="java-picker-actions">
+          <button class="setting-action" @click="emit('openDirectory', 'cache')">打开</button>
+          <button class="setting-action" :disabled="saving" @click="emit('browseStorage', 'cache')">更改</button>
+          <button v-if="storagePaths.cacheDirectory" class="setting-action" :disabled="saving" @click="emit('resetStorage', 'cache')">恢复默认</button>
+        </div>
       </div>
+      <div class="offline-profile-note">切换目录不会移动或删除旧文件。NaCL 会立即改用新位置；切回原目录后，旧实例和缓存仍可继续使用。</div>
       <div class="setting-control">
         <span><strong>临时下载</strong><small>清理由中断任务留下的 .part 与 .tmp 文件</small></span>
         <button class="setting-action" :disabled="saving" @click="emit('cleanDownloads')">清理</button>

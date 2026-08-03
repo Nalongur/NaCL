@@ -136,6 +136,35 @@ export interface StorageReport {
   logBytes: number;
 }
 
+export interface StoragePathSettings {
+  schemaVersion: number;
+  instancesDirectory: string | null;
+  cacheDirectory: string | null;
+}
+
+export interface AppPaths {
+  roamingRoot: string;
+  configDir: string;
+  settingsFile: string;
+  downloadSettingsFile: string;
+  storagePathsFile: string;
+  instancesDir: string;
+  localRoot: string;
+  cacheDir: string;
+  manifestsDir: string;
+  versionsDir: string;
+  assetsDir: string;
+  librariesDir: string;
+  downloadsDir: string;
+  runtimesDir: string;
+  logsDir: string;
+}
+
+export interface StoragePathConfiguration {
+  paths: AppPaths;
+  storagePaths: StoragePathSettings;
+}
+
 export interface MinecraftVersion {
   id: string;
   type: "release" | "snapshot" | "old_beta" | "old_alpha";
@@ -168,6 +197,29 @@ export interface OfflineProfile {
   schemaVersion: number;
   username: string;
   uuid: string;
+}
+
+export interface MinecraftSkin {
+  id: string;
+  state: string;
+  url: string;
+  variant: string;
+}
+
+export interface MinecraftCape {
+  id: string;
+  state: string;
+  url: string;
+  alias: string;
+}
+
+export interface MicrosoftAccount {
+  schemaVersion: number;
+  minecraftId: string;
+  minecraftName: string;
+  skins: MinecraftSkin[];
+  capes: MinecraftCape[];
+  signedInEpochMs: number;
 }
 
 export interface LaunchResult {

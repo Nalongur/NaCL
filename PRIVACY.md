@@ -1,17 +1,17 @@
 # NaCL 隐私说明 / Privacy Notice
 
-生效日期 / Effective date: 2026-07-31
+生效日期 / Effective date: 2026-08-03
 
-适用版本 / Applies to: NaCL public Pre-alpha source and locally built development versions
+适用版本 / Applies to: NaCL 0.3.0 Stage 1 release, source builds, and locally built development versions
 
 本说明用于公开 Na Craft Launcher（NaCL）当前及计划中的数据处理边界。NaCL 是本地桌面应用，目前没有由项目维护者运营的账号、同步、遥测、广告或日志收集服务器。
 
 This notice describes the current and planned data-handling boundaries of Na Craft Launcher (NaCL). NaCL is a local desktop application. The maintainers currently operate no account, synchronization, telemetry, advertising, or log-collection server.
 
 > [!IMPORTANT]
-> Microsoft 登录尚未发布。当前离线启动不会保存或使用 Microsoft 令牌；文中标记为“计划”的令牌处理方式是实现承诺。
+> NaCL 0.3.0 已实现 Microsoft 正版登录。登录在系统浏览器完成；刷新令牌使用 Windows 当前用户级 DPAPI 加密，短期访问令牌不写入普通配置或日志。
 >
-> Microsoft sign-in has not been released. The current offline launch flow does not store or use Microsoft tokens; token handling marked as “planned” is an implementation commitment.
+> NaCL 0.3.0 implements Microsoft sign-in. Authentication occurs in the system browser; the refresh token is encrypted with Windows current-user DPAPI, while short-lived access tokens are not written to ordinary configuration or logs.
 
 ## 中文
 
@@ -32,10 +32,13 @@ This notice describes the current and planned data-handling boundaries of Na Cra
 | --- | --- | --- | --- | --- |
 | 启动器设置 | 主题、默认实例、Java 选择、内存和界面相关设置 | 恢复用户偏好 | `%APPDATA%\NaCL\config` | 保留到用户修改或删除 |
 | 下载设置 | 并发数、重试次数、超时、限速和校验设置 | 控制下载行为 | `%APPDATA%\NaCL\config` | 保留到用户修改或删除 |
+| 存储路径设置 | 用户选择的实例安装目录和共享缓存目录 | 将实例与可重新下载缓存保存到指定位置 | `%APPDATA%\NaCL\config\storage-paths.json` | 保留到恢复默认或删除 |
 | 离线档案 | 用户输入的游戏用户名和据此生成的稳定 UUID | 本地离线身份与游戏启动 | `%APPDATA%\NaCL\config\offline-profile.json` | 保留到用户修改或删除 |
-| 实例元数据 | 实例名称、Minecraft 版本、内存、显示和高级参数 | 管理隔离实例 | `%APPDATA%\NaCL\instances\<instance-id>` | 保留到用户删除实例 |
-| 实例游戏目录 | 存档、截图、配置及未来启动后由游戏生成的数据 | 提供实例隔离 | `%APPDATA%\NaCL\instances\<instance-id>\game` | 保留到用户删除或迁移 |
-| 版本与资源缓存 | 版本清单、版本 JSON、客户端、依赖库、资源索引和资源对象 | 安装与校验原版文件 | `%LOCALAPPDATA%\NaCL\cache` | 保留到用户清理或删除 |
+| Microsoft 账号档案 | Minecraft UUID、玩家名、官方皮肤与披风的公开资料 URL 和状态 | 显示账号并准备正版启动 | `%APPDATA%\NaCL\config\microsoft-account.json` | 保留到退出账号或手动删除 |
+| Microsoft 刷新令牌 | Microsoft 返回的长期刷新令牌，经 Windows 当前用户级 DPAPI 加密 | 应用重启后恢复登录并获取新的短期令牌 | `%APPDATA%\NaCL\config\microsoft-refresh-token.bin` | 退出账号时删除；也可手动删除 |
+| 实例元数据 | 实例名称、Minecraft 版本、内存、显示和高级参数 | 管理隔离实例 | 默认 `%APPDATA%\NaCL\instances\<instance-id>`，可自定义 | 保留到用户删除实例 |
+| 实例游戏目录 | 存档、截图、配置及游戏生成的数据 | 提供实例隔离 | 实例目录下的 `<instance-id>\game` | 保留到用户删除或迁移 |
+| 版本与资源缓存 | 版本清单、版本 JSON、客户端、依赖库、资源索引和资源对象 | 安装与校验原版文件 | 默认 `%LOCALAPPDATA%\NaCL\cache`，可自定义 | 保留到用户清理或删除 |
 | 托管 Java | 下载的 Eclipse Temurin JRE 及运行时信息 | 为对应游戏版本提供 Java | `%LOCALAPPDATA%\NaCL\runtimes` | 保留到用户清理或删除 |
 | 临时下载 | 下载中的 `.part` 文件及安装中间文件 | 支持下载重试和原子替换 | `%LOCALAPPDATA%\NaCL\cache\downloads` | 完成后移除；失败文件可由用户清理 |
 | 本地日志 | 启动器运行、下载、安装、游戏标准输出和错误诊断文本 | 用户本地排错 | `%LOCALAPPDATA%\NaCL\logs` | 按用户设置的保留期或手动删除 |
@@ -46,7 +49,7 @@ NaCL 不会主动扫描用户的文档、浏览器数据、密码库、通讯录
 
 ### 3. 网络请求与第三方服务
 
-联网操作由用户触发的版本刷新、实例安装、Java 下载、游戏启动，以及未来的账号登录产生。离线启动不向 NaCL 维护者发送档案，但 Minecraft 客户端本身仍可能访问 Mojang/Microsoft 服务或用户选择的服务器。
+联网操作由用户触发的版本刷新、实例安装、Java 下载、Microsoft 登录和游戏启动产生。离线启动不向 NaCL 维护者发送档案，但 Minecraft 客户端本身仍可能访问 Mojang/Microsoft 服务或用户选择的服务器。
 
 | 服务或目标 | 触发条件 | 发送或暴露的数据 | 返回内容 |
 | --- | --- | --- | --- |
@@ -54,7 +57,7 @@ NaCL 不会主动扫描用户的文档、浏览器数据、密码库、通讯录
 | Minecraft 资源服务（`resources.download.minecraft.net`） | 安装或修复原版资源 | 常规 HTTPS 请求信息和所请求资源的哈希路径 | Minecraft 资源对象 |
 | 版本 JSON 指定的官方文件地址 | 安装原版客户端和依赖库 | 常规 HTTPS 请求信息及所请求文件路径 | 客户端、库文件、原生库和资源索引 |
 | Eclipse Adoptium API（`api.adoptium.net`）及其下载地址 | 用户选择下载托管 Java | Windows 平台、CPU 架构、所需 Java 主版本和常规 HTTPS 请求信息 | Eclipse Temurin JRE 元数据与压缩包 |
-| Microsoft、Xbox 与 Minecraft 身份服务（计划） | 用户未来主动选择 Microsoft 登录、资格校验或启动游戏 | OAuth 所需请求、授权令牌及服务要求的账号或资格信息 | 授权结果、Xbox/Minecraft 服务令牌、资格与档案信息 |
+| Microsoft、Xbox 与 Minecraft 身份服务 | 用户主动选择 Microsoft 登录、恢复登录、资格校验或正版启动 | OAuth 授权请求、短期令牌、Xbox/XSTS 交换材料及服务要求的账号信息 | Minecraft 短期访问令牌、资格、UUID、玩家名、皮肤与披风档案 |
 | GitHub | 用户访问仓库、提交 Issue 或主动上传诊断材料 | 用户自行提交的账号信息、Issue 文本、附件及 GitHub 记录的网络元数据 | 项目源码、Issue 与支持沟通 |
 
 NaCL 不会把 Microsoft 令牌、离线档案或本地日志发送到 Eclipse Adoptium；也不会把 Java 下载信息发送给 Mojang。各服务只接收完成对应请求所需的信息。
@@ -67,18 +70,18 @@ NaCL 不会把 Microsoft 令牌、离线档案或本地日志发送到 Eclipse A
 
 ### 4. Microsoft 登录与令牌设计
 
-Microsoft 登录目前未实现。获得 Minecraft Java Edition Game Service API 资格并开始实现后，NaCL 计划遵循以下原则：
+NaCL 的 Microsoft 登录遵循以下实现边界：
 
 1. 登录界面由 Microsoft 官方授权页面提供；NaCL 不嵌入仿制密码框，也不要求用户向 NaCL 输入 Microsoft 密码
 2. 使用适合 Windows 公共桌面客户端的 OAuth 授权流程，并采用防止授权码被截获或重放的保护措施
 3. 只请求完成登录、Xbox/Minecraft 身份交换、Minecraft 所有权校验、档案读取和用户主动启动游戏所需的权限
 4. 短期访问令牌只在必要期间使用，避免写入普通设置文件或日志
-5. 需要持久登录时，刷新令牌计划使用 Windows 当前用户范围的加密保护，并与普通实例配置分开保存
+5. 刷新令牌使用 Windows 当前用户范围的 DPAPI 加密保护，并与普通实例配置分开保存；Minecraft、Xbox 和 Microsoft 短期访问令牌只保存在运行内存中
 6. 注销账号时删除 NaCL 保存的本地令牌材料；用户仍可在 Microsoft 账号页面撤销应用授权
 7. 不出售令牌，不用于广告画像，也不交给与身份验证和 Minecraft 服务无关的第三方
 8. 日志和错误信息必须在写入前移除授权标头、完整令牌和其他可直接登录的机密
 
-正式实现可能根据 Microsoft 的审核要求和官方 API 变化调整。代码合并前会同步更新本说明。
+为启动 Minecraft，短期 Minecraft 访问令牌必须作为官方版本定义的启动参数传给本机 Java 进程，因此在游戏运行期间可能被具有足够本机权限的进程检查工具看到。这是本地启动协议的一部分；NaCL 不把该参数写入自己的日志。实现可能随 Microsoft 或 Minecraft API 要求变化，并同步更新本说明。
 
 ### 5. 离线档案
 
@@ -122,7 +125,7 @@ NaCL 维护者不持有这些本地文件，无法代替用户恢复、导出或
 
 ### 8. 安全边界
 
-NaCL 仍处于 Pre-alpha 阶段。当前源码公开不代表已经完成安全审计、代码签名或真实账号环境验证。在 Microsoft 登录功能完成安全评审前，不应把真实令牌手动写入配置文件、命令行参数或 Issue。
+NaCL 0.3.0 是第一阶段公开版本，但仍属于早期软件。当前源码与发布包公开不代表已经完成独立安全审计或代码签名。用户不应把真实令牌手动写入配置文件、启动器日志或 Issue。
 
 如果发现可能泄露账号、令牌或本地文件的安全问题，请避免在公开 Issue 中披露可利用细节；可先创建不包含机密的简短 Issue，请求维护者提供私下联系途径。
 
@@ -155,10 +158,13 @@ In the current version:
 | --- | --- | --- | --- | --- |
 | Launcher settings | Theme, default instance, Java selection, memory, and interface preferences | Restore user preferences | `%APPDATA%\NaCL\config` | Until changed or deleted by the user |
 | Download settings | Concurrency, retries, timeout, bandwidth limit, and verification settings | Control download behavior | `%APPDATA%\NaCL\config` | Until changed or deleted by the user |
+| Storage path settings | User-selected instance installation and shared-cache directories | Store instances and re-downloadable cache in chosen locations | `%APPDATA%\NaCL\config\storage-paths.json` | Until reset or deleted |
 | Offline profile | User-entered game username and the stable UUID derived from it | Local offline identity and game launch | `%APPDATA%\NaCL\config\offline-profile.json` | Until changed or deleted by the user |
-| Instance metadata | Instance name, Minecraft version, memory, display, and advanced arguments | Manage isolated instances | `%APPDATA%\NaCL\instances\<instance-id>` | Until the instance is deleted |
-| Instance game directory | Worlds, screenshots, configuration, and future game-generated data | Keep instances isolated | `%APPDATA%\NaCL\instances\<instance-id>\game` | Until deleted or moved by the user |
-| Version and asset cache | Version manifests, version JSON, client, libraries, asset indexes, and asset objects | Install and verify vanilla files | `%LOCALAPPDATA%\NaCL\cache` | Until cleaned or deleted by the user |
+| Microsoft account profile | Minecraft UUID, player name, and public official skin/cape URLs and states | Display the account and prepare authenticated launch | `%APPDATA%\NaCL\config\microsoft-account.json` | Until sign-out or manual deletion |
+| Microsoft refresh token | Long-lived Microsoft refresh token encrypted with Windows current-user DPAPI | Restore sign-in and obtain new short-lived tokens after restart | `%APPDATA%\NaCL\config\microsoft-refresh-token.bin` | Deleted on sign-out; may also be deleted manually |
+| Instance metadata | Instance name, Minecraft version, memory, display, and advanced arguments | Manage isolated instances | `%APPDATA%\NaCL\instances\<instance-id>` by default; customizable | Until the instance is deleted |
+| Instance game directory | Worlds, screenshots, configuration, and game-generated data | Keep instances isolated | `<instance-id>\game` under the active instance directory | Until deleted or moved by the user |
+| Version and asset cache | Version manifests, version JSON, client, libraries, asset indexes, and asset objects | Install and verify vanilla files | `%LOCALAPPDATA%\NaCL\cache` by default; customizable | Until cleaned or deleted by the user |
 | Managed Java | Downloaded Eclipse Temurin JREs and runtime information | Provide Java for compatible game versions | `%LOCALAPPDATA%\NaCL\runtimes` | Until cleaned or deleted by the user |
 | Temporary downloads | In-progress `.part` files and installation intermediates | Support retries and atomic replacement | `%LOCALAPPDATA%\NaCL\cache\downloads` | Removed on success; failed files may be cleaned by the user |
 | Local logs | Launcher, download, installation, game process output, and diagnostic text | Local troubleshooting | `%LOCALAPPDATA%\NaCL\logs` | According to the user-selected retention period or manual deletion |
@@ -169,7 +175,7 @@ NaCL does not intentionally scan documents, browser data, password stores, conta
 
 ### 3. Network requests and third-party services
 
-Network activity results from user-triggered version refreshes, instance installation, Java downloads, game launch, and future account sign-in. Offline launch does not send the profile to NaCL maintainers, but the Minecraft client may still contact Mojang/Microsoft services or servers selected by the user.
+Network activity results from user-triggered version refreshes, instance installation, Java downloads, Microsoft sign-in, and game launch. Offline launch does not send the profile to NaCL maintainers, but the Minecraft client may still contact Mojang/Microsoft services or servers selected by the user.
 
 | Service or destination | Trigger | Data sent or exposed | Response |
 | --- | --- | --- | --- |
@@ -177,7 +183,7 @@ Network activity results from user-triggered version refreshes, instance install
 | Minecraft asset service (`resources.download.minecraft.net`) | Installing or repairing vanilla assets | Ordinary HTTPS request information and the requested hash path | Minecraft asset objects |
 | Official file locations referenced by version JSON | Installing the vanilla client and libraries | Ordinary HTTPS request information and requested file paths | Client, libraries, native libraries, and asset indexes |
 | Eclipse Adoptium API (`api.adoptium.net`) and download locations | The user requests managed Java | Windows platform, CPU architecture, requested Java major version, and ordinary HTTPS request information | Eclipse Temurin JRE metadata and archives |
-| Microsoft, Xbox, and Minecraft identity services (planned) | The user initiates Microsoft sign-in, entitlement verification, or game launch | OAuth requests, authorization tokens, and account or entitlement data required by those services | Authorization results, Xbox/Minecraft service tokens, entitlement, and profile data |
+| Microsoft, Xbox, and Minecraft identity services | The user initiates sign-in, restores a session, verifies entitlement, or launches with an authenticated account | OAuth requests, short-lived tokens, Xbox/XSTS exchange material, and required account information | Minecraft short-lived token, entitlement, UUID, player name, skin, and cape profile |
 | GitHub | The user visits the repository, submits an Issue, or uploads diagnostic material | User-submitted account details, Issue text, attachments, and network metadata recorded by GitHub | Source code, Issues, and support communication |
 
 NaCL does not send Microsoft tokens, offline profiles, or local logs to Eclipse Adoptium, and it does not send Java download information to Mojang. Each provider receives only the requests required for its corresponding operation.
@@ -190,18 +196,18 @@ Third parties may process IP addresses, device and browser information, request 
 
 ### 4. Microsoft sign-in and token design
 
-Microsoft sign-in is not implemented. After Minecraft Java Edition Game Service API eligibility is approved, NaCL plans to follow these principles:
+NaCL's Microsoft sign-in follows these implementation boundaries:
 
 1. Present Microsoft's official authorization page; NaCL will not imitate a password form or ask the user to enter a Microsoft password into the launcher
 2. Use an OAuth flow appropriate for a public Windows desktop client, with protections against intercepted or replayed authorization codes
 3. Request only the permissions needed for sign-in, Xbox/Minecraft identity exchange, Minecraft ownership checks, profile retrieval, and user-initiated launch
 4. Use short-lived access tokens only as needed and keep them out of ordinary settings files and logs
-5. If persistent sign-in is provided, protect refresh tokens with Windows current-user-scoped encryption and store them separately from ordinary instance configuration
+5. Protect refresh tokens with Windows current-user DPAPI and store them separately from ordinary instance configuration; keep Microsoft, Xbox, and Minecraft short-lived access tokens only in process memory
 6. Remove locally stored token material when the user signs out; users may also revoke application access through their Microsoft account
 7. Never sell tokens, use them for advertising profiles, or provide them to third parties unrelated to authentication or Minecraft services
 8. Redact authorization headers, complete tokens, and other login-capable secrets before writing logs or error details
 
-The final implementation may change to satisfy Microsoft review requirements or official API changes. This notice will be updated before those changes are released.
+Launching Minecraft requires passing the short-lived Minecraft access token to the local Java process through the arguments defined by official version metadata. While the game runs, sufficiently privileged local process-inspection tools may be able to see that argument. NaCL does not write it to its own logs. The implementation may change with Microsoft or Minecraft API requirements, with this notice updated accordingly.
 
 ### 5. Offline profiles
 
@@ -245,7 +251,7 @@ The NaCL maintainers do not possess these local files and therefore cannot resto
 
 ### 8. Security boundary
 
-NaCL is in Pre-alpha. Public source availability does not mean that the application has completed a security audit, code signing, or validation with live accounts. Until Microsoft sign-in receives a security review, users should not manually place real tokens in configuration files, command-line arguments, or Issues.
+NaCL 0.3.0 is the first public Stage 1 release, but it remains early-stage software. Public source and release binaries do not mean that the application has completed an independent security audit or code signing. Users must not manually place real tokens in configuration files, launcher logs, or Issues.
 
 If a security problem could expose an account, token, or local file, avoid posting exploitable details in a public Issue. A short Issue without secrets may be used to request a private contact path.
 
