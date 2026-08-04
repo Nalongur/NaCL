@@ -2103,7 +2103,7 @@ dependencies = [
 
 [[package]]
 name = "nacl"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "nacl-launcher-core",
  "serde",
@@ -2116,7 +2116,7 @@ dependencies = [
 
 [[package]]
 name = "nacl-launcher-core"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "base64 0.22.1",
  "md5",
@@ -2127,6 +2127,7 @@ dependencies = [
  "sha1",
  "sha2",
  "tempfile",
+ "toml 0.8.2",
  "url",
  "uuid",
  "walkdir",

@@ -1,14 +1,18 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import DownloadStrategyPanel from "./components/DownloadStrategyPanel.vue";
+import ContentBrowserDrawer from "./components/ContentBrowserDrawer.vue";
 import FlatIcon, { type FlatIconName } from "./components/FlatIcon.vue";
 import InstallInstanceDrawer from "./components/InstallInstanceDrawer.vue";
+import InstanceContentPanel from "./components/InstanceContentPanel.vue";
+import InstanceMaintenancePanel from "./components/InstanceMaintenancePanel.vue";
 import InstanceSettingsDrawer from "./components/InstanceSettingsDrawer.vue";
 import LogDetailDrawer from "./components/LogDetailDrawer.vue";
+import ModpackInstallDrawer from "./components/ModpackInstallDrawer.vue";
 import SettingsSectionPanel from "./components/SettingsSectionPanel.vue";
 import brandIcon from "./assets/brand/nacl-icon.svg";
 import type {
@@ -20,6 +24,8 @@ import type {
   JavaRuntime,
   LauncherInstance,
   LauncherSettings,
+  LoaderKind,
+  ContentKind,
   LogContent,
   LogFile,
   MinecraftVersion,
@@ -47,7 +53,7 @@ type ResizeDirection =
   | "SouthWest"
   | "West";
 
-type DownloadSection = "versions" | "queue" | "strategy";
+type DownloadSection = "versions" | "content" | "queue" | "strategy";
 type LogSection = "launcher" | "game";
 type HelpSection = "diagnostics" | "directories" | "about";
 type AccountMode = "microsoft" | "offline";
@@ -68,9 +74,19 @@ interface AppBootstrap {
   downloadSettings: DownloadSettings;
 }
 
+function initialTheme(): Theme {
+  try {
+    const stored = window.localStorage.getItem("nacl-theme");
+    if (stored === "light" || stored === "dark") return stored;
+  } catch {
+    // The startup page already falls back to the operating-system preference.
+  }
+  return document.documentElement.dataset.theme === "light" ? "light" : "dark";
+}
+
 const currentPage = ref<Page>("home");
 const currentTab = ref<InstanceTab>("overview");
-const theme = ref<Theme>("dark");
+const theme = ref<Theme>(initialTheme());
 const javaRuntimes = ref<JavaRuntime[]>([]);
 const javaDetectionState = ref<"loading" | "ready" | "unavailable">("loading");
 const javaDownloadState = ref<"idle" | "downloading">("idle");
@@ -80,7 +96,7 @@ const memoryState = ref<"loading" | "ready" | "unavailable">("loading");
 const settingsBackendAvailable = ref(false);
 const launcherSettings = ref<LauncherSettings>({
   schemaVersion: 1,
-  theme: "dark",
+  theme: theme.value,
   selectedInstanceId: null,
   defaultPage: "home",
   rememberLastInstance: true,
@@ -123,11 +139,16 @@ const instances = ref<LauncherInstance[]>([]);
 const selectedInstanceId = ref<string | null>(null);
 const instancesState = ref<"loading" | "ready" | "unavailable">("loading");
 const installPanelOpen = ref(false);
+const modpackPanelOpen = ref(false);
+const downloadContentBrowserOpen = ref(false);
+const downloadContentKind = ref<Exclude<ContentKind, "modpack">>("mod");
+const downloadContentInstanceId = ref("");
 const installState = ref<"idle" | "installing" | "paused">("idle");
 const installCancelledByUser = ref(false);
 const installError = ref("");
 const installProgress = ref<InstallProgress | null>(null);
 const selectedVersion = ref<MinecraftVersion | null>(null);
+const installTaskName = ref("");
 const versionCatalog = ref<VersionCatalog | null>(null);
 const versionState = ref<"idle" | "loading" | "ready" | "unavailable">("idle");
 const versionError = ref("");
@@ -213,6 +234,7 @@ const railItems: Array<{ page: Page; icon: FlatIconName; label: string }> = [
 const tabs: Array<{ id: InstanceTab; label: string }> = [
   { id: "overview", label: "概览" },
   { id: "version", label: "游戏版本" },
+  { id: "content", label: "模组与资源" },
   { id: "runtime", label: "Java 与 JVM" },
   { id: "display", label: "显示" },
   { id: "files", label: "文件" },
@@ -244,6 +266,7 @@ const settings: Record<InstanceTab, SettingRow[]> = {
     { name: "Minecraft 版本", description: "切换版本前会检查存档兼容风险", value: "1.21", action: "选择版本", section: "version" },
     { name: "版本频道", description: "控制版本选择器显示范围", value: "正式版", action: "更改", section: "version" },
   ],
+  content: [],
   runtime: [
     { name: "Java 路径", description: "自动管理或使用自定义运行环境", value: "自动选择 · Java 21", action: "浏览", section: "runtime" },
     { name: "内存", description: "当前实例的 JVM 内存上限", value: "4 GB", action: "调整", section: "runtime" },
@@ -276,6 +299,31 @@ const selectedInstance = computed(
     instances.value[0] ??
     null,
 );
+const downloadContentInstance = computed(() =>
+  instances.value.find((instance) => instance.id === downloadContentInstanceId.value)
+    ?? selectedInstance.value
+    ?? instances.value[0]
+    ?? null,
+);
+
+function openDownloadContentBrowser(kind: Exclude<ContentKind, "modpack">) {
+  if (!downloadContentInstance.value) return;
+  downloadContentInstanceId.value = downloadContentInstance.value.id;
+  downloadContentKind.value = kind;
+  downloadContentBrowserOpen.value = true;
+}
+
+function instanceVersionLabel(instance: LauncherInstance) {
+  if (instance.loader.kind === "vanilla") return instance.gameVersion;
+  const loaderNames: Record<LoaderKind, string> = {
+    vanilla: "原版",
+    fabric: "Fabric",
+    quilt: "Quilt",
+    forge: "Forge",
+    neoforge: "NeoForge",
+  };
+  return `${instance.gameVersion} · ${loaderNames[instance.loader.kind]}${instance.loader.version ? ` ${instance.loader.version}` : ""}`;
+}
 const visibleVersions = computed(() => {
   const query = versionSearch.value.trim().toLowerCase();
   return (versionCatalog.value?.versions ?? [])
@@ -328,6 +376,18 @@ const installProgressPercent = computed(() => {
     ),
   );
 });
+const downloadSectionTitle = computed(() => ({
+  versions: "版本浏览",
+  content: "社区内容",
+  queue: "安装队列",
+  strategy: "下载策略",
+})[downloadSection.value]);
+const downloadSectionSubtitle = computed(() => ({
+  versions: "选择 Mojang 官方版本并创建独立实例",
+  content: "为现有实例添加 Mod、资源包、光影包和数据包",
+  queue: "查看进行中的任务与最近完成的安装",
+  strategy: "只影响 Minecraft 文件下载，不属于全局设置",
+})[downloadSection.value]);
 const pageContext = computed(() => {
   const contexts: Record<
     Page,
@@ -344,6 +404,7 @@ const pageContext = computed(() => {
       label: "Minecraft",
       items: [
         { label: "版本浏览", section: "versions" },
+        { label: "社区内容", section: "content" },
         { label: "安装队列", section: "queue" },
         { label: "下载策略", section: "strategy" },
       ],
@@ -994,7 +1055,12 @@ async function loadVersionCatalog(forceRefresh: boolean) {
   }
 }
 
-async function installSelectedVersion(request: { name: string; versionId: string }) {
+async function installSelectedVersion(request: {
+  name: string;
+  versionId: string;
+  loader: LoaderKind;
+  loaderVersion: string | null;
+}) {
   const backendState = await invoke<string>("get_install_status").catch(() => "idle");
   if (backendState !== "idle") {
     installState.value = backendState === "paused" ? "paused" : "installing";
@@ -1002,6 +1068,7 @@ async function installSelectedVersion(request: { name: string; versionId: string
     return;
   }
   installState.value = "installing";
+  installTaskName.value = `Minecraft ${request.versionId}`;
   installCancelledByUser.value = false;
   installError.value = "";
   installProgress.value = null;
@@ -1023,6 +1090,39 @@ async function installSelectedVersion(request: { name: string; versionId: string
       : typeof error === "string"
         ? error
         : "安装失败，请检查网络后重试";
+  } finally {
+    installState.value = "idle";
+  }
+}
+
+async function installModpack(request: {
+  name: string;
+  versionId: string | null;
+  localPath: string | null;
+}) {
+  const backendState = await invoke<string>("get_install_status").catch(() => "idle");
+  if (backendState !== "idle") {
+    installState.value = backendState === "paused" ? "paused" : "installing";
+    installError.value = "已有安装任务正在运行，请先完成或取消当前任务";
+    return;
+  }
+  installState.value = "installing";
+  installTaskName.value = request.name;
+  installCancelledByUser.value = false;
+  installError.value = "";
+  installProgress.value = null;
+  try {
+    const created = await invoke<LauncherInstance>("install_modpack", { request });
+    instances.value = [...instances.value, created].sort((left, right) => left.name.localeCompare(right.name, "zh-CN"));
+    selectedInstanceId.value = created.id;
+    launcherSettings.value.selectedInstanceId = created.id;
+    modpackPanelOpen.value = false;
+    currentPage.value = "instances";
+    currentTab.value = "content";
+  } catch (error) {
+    installError.value = installCancelledByUser.value
+      ? ""
+      : typeof error === "string" ? error : "整合包安装失败";
   } finally {
     installState.value = "idle";
   }
@@ -1094,6 +1194,10 @@ function handleGlobalKeydown(event: KeyboardEvent) {
   if (event.key !== "Escape") return;
   if (installPanelOpen.value) {
     closeInstallPanel();
+  } else if (downloadContentBrowserOpen.value) {
+    downloadContentBrowserOpen.value = false;
+  } else if (modpackPanelOpen.value && installState.value === "idle") {
+    modpackPanelOpen.value = false;
   } else if (offlineEditorOpen.value) {
     closeOfflineEditor();
   } else if (instanceEditorOpen.value) {
@@ -1293,33 +1397,39 @@ async function loadMicrosoftAccount() {
 }
 
 onMounted(async () => {
-  document.documentElement.dataset.theme = theme.value;
-  window.addEventListener("keydown", handleGlobalKeydown);
-  unlistenInstallProgress = await listen<InstallProgress>(
-    "install-progress",
-    (event) => {
-      installProgress.value = event.payload;
-    },
-  ).catch(() => null);
-  unlistenGameExited = await listen<GameExited>("game-exited", (event) => {
-    if (event.payload.instanceId !== launchedInstanceId.value) return;
-    launchState.value = "idle";
-    launchedInstanceId.value = null;
-    lastExitCode.value = event.payload.exitCode;
-    if (event.payload.exitCode !== 0) {
-      logSection.value = "game";
-      launchError.value =
-        event.payload.exitCode === null
-          ? "游戏进程已结束，未返回退出码"
-          : `游戏异常退出（代码 ${event.payload.exitCode}），请查看游戏日志`;
-    }
-    void loadLogs();
-  }).catch(() => null);
-  await loadAppBootstrap();
-  await syncInstallStatus();
-  await loadInstances();
-  await loadOfflineProfile();
-  await loadMicrosoftAccount();
+  try {
+    window.addEventListener("keydown", handleGlobalKeydown);
+    unlistenInstallProgress = await listen<InstallProgress>(
+      "install-progress",
+      (event) => {
+        installProgress.value = event.payload;
+      },
+    ).catch(() => null);
+    unlistenGameExited = await listen<GameExited>("game-exited", (event) => {
+      if (event.payload.instanceId !== launchedInstanceId.value) return;
+      launchState.value = "idle";
+      launchedInstanceId.value = null;
+      lastExitCode.value = event.payload.exitCode;
+      if (event.payload.exitCode !== 0) {
+        logSection.value = "game";
+        launchError.value =
+          event.payload.exitCode === null
+            ? "游戏进程已结束，未返回退出码"
+            : `游戏异常退出（代码 ${event.payload.exitCode}），请查看游戏日志`;
+      }
+      void loadLogs();
+    }).catch(() => null);
+    await loadAppBootstrap();
+    await syncInstallStatus();
+    await loadInstances();
+    await loadOfflineProfile();
+    await loadMicrosoftAccount();
+  } finally {
+    await nextTick();
+    window.requestAnimationFrame(() => {
+      window.dispatchEvent(new Event("nacl-app-ready"));
+    });
+  }
   void loadJavaRuntimes();
   void loadMemoryReport();
   gameStatePoll = window.setInterval(() => void reconcileGameState(), 1500);
@@ -1334,7 +1444,21 @@ onBeforeUnmount(() => {
 
 watch(theme, (nextTheme) => {
   document.documentElement.dataset.theme = nextTheme;
+  try {
+    window.localStorage.setItem("nacl-theme", nextTheme);
+  } catch {
+    // Theme persistence still remains available through the Rust settings backend.
+  }
 });
+
+watch(
+  [instances, selectedInstanceId],
+  () => {
+    if (instances.value.some((instance) => instance.id === downloadContentInstanceId.value)) return;
+    downloadContentInstanceId.value = selectedInstance.value?.id ?? instances.value[0]?.id ?? "";
+  },
+  { immediate: true, deep: true },
+);
 
 watch(
   () => launcherSettings.value,
@@ -1418,7 +1542,7 @@ watch(
             <span class="instance-mark"><FlatIcon name="instances" /></span>
             <span class="instance-copy">
               <span class="instance-name">{{ instance.name }}</span>
-              <span class="instance-version">Java Edition · {{ instance.gameVersion }}</span>
+              <span class="instance-version">Java Edition · {{ instanceVersionLabel(instance) }}</span>
             </span>
           </button>
           <div v-if="instancesState === 'loading'" class="instance-empty">正在读取实例…</div>
@@ -1498,7 +1622,7 @@ watch(
             <h1 class="page-heading">{{ selectedInstance?.name ?? "创建第一个实例" }}</h1>
             <div class="home-subtitle">
               <template v-if="selectedInstance">
-                Minecraft {{ selectedInstance.gameVersion }} · {{ javaSummary }} ·
+                Minecraft {{ instanceVersionLabel(selectedInstance) }} · {{ javaSummary }} ·
                 {{ selectedInstance.installation.state === "ready" ? "已安装" : "安装不完整" }}
               </template>
               <template v-else>选择版本并建立独立的游戏目录</template>
@@ -1670,12 +1794,12 @@ watch(
 
       <section
         v-else-if="currentPage === 'instances' && selectedInstance"
-        :key="`instances-${selectedInstance.id}-${currentTab}`"
+        :key="`instances-${selectedInstance.id}`"
         class="content instance-page"
       >
         <div class="content-head">
           <div>
-            <div class="eyebrow">Java Edition · {{ selectedInstance.gameVersion }}</div>
+            <div class="eyebrow">Java Edition · {{ instanceVersionLabel(selectedInstance) }}</div>
             <h1 class="page-heading">{{ selectedInstance.name }}</h1>
           </div>
           <div class="head-actions">
@@ -1722,7 +1846,15 @@ watch(
           </button>
         </nav>
 
-        <div class="settings-list">
+        <InstanceContentPanel
+          v-if="currentTab === 'content'"
+          :instance="selectedInstance"
+        />
+        <InstanceMaintenancePanel
+          v-else-if="currentTab === 'files'"
+          :instance="selectedInstance"
+        />
+        <div v-else class="settings-list">
           <div v-for="row in visibleSettings" :key="row.name" class="setting-row">
             <div>
               <div class="setting-name">{{ row.name }}</div>
@@ -1757,20 +1889,11 @@ watch(
         <div class="content-head">
           <div>
             <div class="eyebrow">Minecraft Java Edition</div>
-            <h1 class="page-heading">
-              {{ downloadSection === "versions" ? "版本浏览" : downloadSection === "queue" ? "安装队列" : "下载策略" }}
-            </h1>
-            <div class="home-subtitle">
-              {{
-                downloadSection === "versions"
-                  ? "选择 Mojang 官方版本并创建独立实例"
-                  : downloadSection === "queue"
-                    ? "查看进行中的任务与最近完成的安装"
-                    : "只影响 Minecraft 文件下载，不属于全局设置"
-              }}
-            </div>
+            <h1 class="page-heading">{{ downloadSectionTitle }}</h1>
+            <div class="home-subtitle">{{ downloadSectionSubtitle }}</div>
           </div>
           <div v-if="downloadSection === 'versions'" class="head-actions">
+            <button class="setting-action" @click="modpackPanelOpen = true">安装整合包</button>
             <button class="icon-button" aria-label="刷新版本清单" :disabled="versionState === 'loading'" @click="loadVersionCatalog(true)">
               <FlatIcon name="refresh" />
             </button>
@@ -1836,13 +1959,57 @@ watch(
             </div>
         </article>
 
+        <div v-else-if="downloadSection === 'content'" class="community-download-page">
+          <article v-if="downloadContentInstance" class="feature-card community-download-card">
+            <div class="feature-card-head">
+              <div>
+                <div class="feature-kicker">目标实例</div>
+                <h2>添加社区内容</h2>
+                <p>安装前会按实例的 Minecraft 与加载器版本筛选，并校验文件哈希。</p>
+              </div>
+              <label class="community-instance-picker">
+                <span>安装到</span>
+                <select v-model="downloadContentInstanceId">
+                  <option v-for="instance in instances" :key="instance.id" :value="instance.id">
+                    {{ instance.name }} · {{ instanceVersionLabel(instance) }}
+                  </option>
+                </select>
+              </label>
+            </div>
+            <div class="community-kind-grid">
+              <button type="button" @click="openDownloadContentBrowser('mod')">
+                <strong>Mod</strong><span>按当前加载器筛选</span>
+              </button>
+              <button type="button" @click="openDownloadContentBrowser('resourcepack')">
+                <strong>资源包</strong><span>下载并写入实例资源目录</span>
+              </button>
+              <button type="button" @click="openDownloadContentBrowser('shader')">
+                <strong>光影包</strong><span>管理实例的 shaderpacks</span>
+              </button>
+              <button type="button" @click="openDownloadContentBrowser('datapack')">
+                <strong>数据包</strong><span>选择实例中的具体存档</span>
+              </button>
+            </div>
+            <div class="community-download-actions">
+              <button class="setting-action" type="button" @click="modpackPanelOpen = true">安装 Modrinth 整合包</button>
+              <button class="primary-button" type="button" @click="openDownloadContentBrowser('mod')">浏览社区内容</button>
+            </div>
+          </article>
+          <div v-else class="content-empty-block">
+            <FlatIcon name="instances" />
+            <h2>还没有可安装内容的实例</h2>
+            <p>先创建一个 Minecraft 实例，再添加 Mod、资源包、光影包或数据包。</p>
+            <button class="setting-action" @click="beginAddInstance">添加实例</button>
+          </div>
+        </div>
+
         <div v-else-if="downloadSection === 'queue'" class="queue-page">
           <article v-if="installState !== 'idle'" class="queue-task">
             <div class="queue-task-main">
               <span class="activity-dot" :class="{ 'activity-dot--idle': installState === 'paused' }"></span>
               <div>
                 <div class="feature-kicker">{{ installState === "paused" ? "已暂停" : "正在安装" }}</div>
-                <h2>Minecraft {{ selectedVersion?.id }}</h2>
+                <h2>{{ installTaskName || `Minecraft ${selectedVersion?.id ?? ''}` }}</h2>
                 <p>{{ installProgress?.currentFile || "正在连接 Mojang 服务…" }}</p>
               </div>
             </div>
@@ -1895,7 +2062,7 @@ watch(
         </div>
 
         <DownloadStrategyPanel
-          v-else
+          v-else-if="downloadSection === 'strategy'"
           :settings="downloadSettings"
           :saving="downloadSaveState === 'saving'"
           :error="downloadSaveError"
@@ -2084,7 +2251,7 @@ watch(
             <div class="eyebrow">NaCL</div>
             <h2>Na Craft Launcher</h2>
             <p>面向 Windows 的极简 Minecraft Java Edition 启动器。</p>
-            <p>当前版本 {{ diagnostic?.appVersion ?? "0.1.0" }} · 原版 Vanilla</p>
+            <p>当前版本 {{ diagnostic?.appVersion ?? "0.4.0" }} · 原版与模组实例</p>
           </div>
         </div>
       </section>
@@ -2110,6 +2277,21 @@ watch(
       @pause="pauseInstall"
       @resume="resumeInstall"
       @cancel="cancelInstall"
+    />
+    <ModpackInstallDrawer
+      :open="modpackPanelOpen"
+      :installing="installState !== 'idle'"
+      :error="installError"
+      @close="modpackPanelOpen = false"
+      @install="installModpack"
+    />
+    <ContentBrowserDrawer
+      v-if="downloadContentInstance"
+      :open="downloadContentBrowserOpen"
+      :instance="downloadContentInstance"
+      :initial-kind="downloadContentKind"
+      :world-name="null"
+      @close="downloadContentBrowserOpen = false"
     />
     <InstanceSettingsDrawer
       :open="instanceEditorOpen"

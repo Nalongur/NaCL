@@ -1,6 +1,6 @@
 [package]
 name = "nacl"
-version = "0.3.0"
+version = "0.4.0"
 description = "Na Craft Launcher"
 edition = "2021"
 

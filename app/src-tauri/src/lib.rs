@@ -298,6 +298,291 @@ async fn load_version_catalog(
 }
 
 #[tauri::command]
+async fn search_content(
+    request: launcher_core::content::SearchContentRequest,
+) -> Result<launcher_core::content::ContentSearchPage, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        launcher_core::content::search_content(request).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("社区内容搜索任务失败：{error}"))?
+}
+
+#[tauri::command]
+async fn list_content_versions(
+    project_id: String,
+    game_version: String,
+    loader: Option<launcher_core::instance::GameLoader>,
+    kind: launcher_core::content::ContentKind,
+) -> Result<Vec<launcher_core::content::ContentVersion>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        launcher_core::content::list_project_versions(&project_id, &game_version, loader, kind)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("社区内容版本任务失败：{error}"))?
+}
+
+#[tauri::command]
+async fn list_instance_content(
+    instance_id: String,
+) -> Result<Vec<launcher_core::content::ManagedContent>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        launcher_core::content::list_instance_content(&instance_id)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("读取实例内容任务失败：{error}"))?
+}
+
+#[tauri::command]
+async fn list_instance_worlds(
+    instance_id: String,
+) -> Result<Vec<launcher_core::content::WorldInfo>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        launcher_core::content::list_instance_worlds(&instance_id)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("读取实例存档任务失败：{error}"))?
+}
+
+#[tauri::command]
+async fn install_content(
+    state: tauri::State<'_, ContentTaskState>,
+    request: launcher_core::content::InstallContentRequest,
+) -> Result<Vec<launcher_core::content::ManagedContent>, String> {
+    let instance_id = request.instance_id.clone();
+    let tasks = acquire_content_task(&state, &instance_id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _reset = ContentTaskReset { tasks, instance_id };
+        launcher_core::content::install_content(request).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("安装实例内容任务失败：{error}"))?
+}
+
+#[tauri::command]
+async fn import_local_content(
+    state: tauri::State<'_, ContentTaskState>,
+    request: launcher_core::content::ImportLocalContentRequest,
+) -> Result<Vec<launcher_core::content::ManagedContent>, String> {
+    let instance_id = request.instance_id.clone();
+    let tasks = acquire_content_task(&state, &instance_id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _reset = ContentTaskReset { tasks, instance_id };
+        launcher_core::content::import_local_content(request).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("导入本地内容任务失败：{error}"))?
+}
+
+#[tauri::command]
+async fn check_content_updates(
+    instance_id: String,
+) -> Result<Vec<launcher_core::content::ContentUpdate>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        launcher_core::content::check_content_updates(&instance_id)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("检查内容更新任务失败：{error}"))?
+}
+
+#[tauri::command]
+async fn set_content_enabled(
+    state: tauri::State<'_, ContentTaskState>,
+    request: launcher_core::content::ContentActionRequest,
+    enabled: bool,
+) -> Result<Vec<launcher_core::content::ManagedContent>, String> {
+    let instance_id = request.instance_id.clone();
+    let tasks = acquire_content_task(&state, &instance_id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _reset = ContentTaskReset { tasks, instance_id };
+        launcher_core::content::set_content_enabled(request, enabled)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("切换实例内容状态失败：{error}"))?
+}
+
+#[tauri::command]
+async fn remove_content(
+    state: tauri::State<'_, ContentTaskState>,
+    request: launcher_core::content::ContentActionRequest,
+) -> Result<Vec<launcher_core::content::ManagedContent>, String> {
+    let instance_id = request.instance_id.clone();
+    let tasks = acquire_content_task(&state, &instance_id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _reset = ContentTaskReset { tasks, instance_id };
+        launcher_core::content::remove_content(request).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("移除实例内容任务失败：{error}"))?
+}
+
+#[tauri::command]
+async fn set_content_enabled_batch(
+    state: tauri::State<'_, ContentTaskState>,
+    request: launcher_core::content::ContentBatchActionRequest,
+    enabled: bool,
+) -> Result<Vec<launcher_core::content::ManagedContent>, String> {
+    let instance_id = request.instance_id.clone();
+    let tasks = acquire_content_task(&state, &instance_id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _reset = ContentTaskReset { tasks, instance_id };
+        launcher_core::content::set_content_enabled_batch(request, enabled)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("批量切换实例内容状态失败：{error}"))?
+}
+
+#[tauri::command]
+async fn remove_content_batch(
+    state: tauri::State<'_, ContentTaskState>,
+    request: launcher_core::content::ContentBatchActionRequest,
+) -> Result<Vec<launcher_core::content::ManagedContent>, String> {
+    let instance_id = request.instance_id.clone();
+    let tasks = acquire_content_task(&state, &instance_id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _reset = ContentTaskReset { tasks, instance_id };
+        launcher_core::content::remove_content_batch(request).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("批量移除实例内容失败：{error}"))?
+}
+
+#[tauri::command]
+async fn update_content_batch(
+    state: tauri::State<'_, ContentTaskState>,
+    request: launcher_core::content::ContentBatchActionRequest,
+) -> Result<Vec<launcher_core::content::ManagedContent>, String> {
+    let instance_id = request.instance_id.clone();
+    let tasks = acquire_content_task(&state, &instance_id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _reset = ContentTaskReset { tasks, instance_id };
+        launcher_core::content::update_content_batch(request).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("批量更新实例内容失败：{error}"))?
+}
+
+#[tauri::command]
+async fn scan_instance_files(
+    instance_id: String,
+) -> Result<launcher_core::maintenance::InstanceFileReport, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        launcher_core::maintenance::scan_instance_files(&instance_id)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("实例文件校验任务失败：{error}"))?
+}
+
+#[tauri::command]
+async fn repair_instance(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, InstallTaskState>,
+    instance_id: String,
+) -> Result<launcher_core::maintenance::RepairInstanceReport, String> {
+    state
+        .0
+        .compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst)
+        .map_err(|_| "已有安装或修复任务正在运行".to_string())?;
+    let control = Arc::clone(&state.0);
+    let reset_control = Arc::clone(&state.0);
+    let joined = tauri::async_runtime::spawn_blocking(move || {
+        let _reset_on_exit = InstallTaskReset(Arc::clone(&control));
+        launcher_core::maintenance::repair_instance_controlled(
+            &instance_id,
+            |progress| {
+                let _ = app.emit("install-progress", progress);
+            },
+            || match control.load(Ordering::SeqCst) {
+                2 => launcher_core::installer::InstallControl::Paused,
+                3 => launcher_core::installer::InstallControl::Cancelled,
+                _ => launcher_core::installer::InstallControl::Running,
+            },
+        )
+        .map_err(|error| error.to_string())
+    })
+    .await;
+    reset_control.store(0, Ordering::SeqCst);
+    joined.map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn analyze_instance_crash(
+    instance_id: String,
+) -> Result<launcher_core::maintenance::CrashAnalysis, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        launcher_core::maintenance::analyze_instance_crash(&instance_id)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("崩溃分析任务失败：{error}"))?
+}
+
+#[tauri::command]
+async fn export_instance(
+    instance_id: String,
+    destination: std::path::PathBuf,
+) -> Result<launcher_core::maintenance::ExportInstanceReport, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        launcher_core::maintenance::export_instance(&instance_id, destination)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("实例导出任务失败：{error}"))?
+}
+
+#[tauri::command]
+async fn list_loader_versions(
+    loader: launcher_core::instance::GameLoader,
+    game_version: String,
+) -> Result<launcher_core::loaders::LoaderCatalog, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        launcher_core::loaders::list_loader_versions(loader, &game_version)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("加载器目录任务失败：{error}"))?
+}
+
+#[tauri::command]
+async fn install_modpack(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, InstallTaskState>,
+    request: launcher_core::content::InstallModpackRequest,
+) -> Result<launcher_core::instance::InstanceConfig, String> {
+    state
+        .0
+        .compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst)
+        .map_err(|_| "已有安装任务正在运行".to_string())?;
+    let control = Arc::clone(&state.0);
+    let reset_control = Arc::clone(&state.0);
+    let joined = tauri::async_runtime::spawn_blocking(move || {
+        let _reset_on_exit = InstallTaskReset(Arc::clone(&control));
+        launcher_core::content::install_modpack_controlled(
+            request,
+            |progress| {
+                let _ = app.emit("install-progress", progress);
+            },
+            || match control.load(Ordering::SeqCst) {
+                2 => launcher_core::installer::InstallControl::Paused,
+                3 => launcher_core::installer::InstallControl::Cancelled,
+                _ => launcher_core::installer::InstallControl::Running,
+            },
+        )
+        .map_err(|error| error.to_string())
+    })
+    .await;
+    reset_control.store(0, Ordering::SeqCst);
+    joined.map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
 async fn install_instance(
     app: tauri::AppHandle,
     state: tauri::State<'_, InstallTaskState>,
@@ -375,48 +660,111 @@ fn open_directory(
     launcher_core::system::open_directory(target, instance_id).map_err(|error| error.to_string())
 }
 
+#[tauri::command]
+fn complete_startup(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, StartupState>,
+) -> Result<(), String> {
+    if state.0.swap(true, Ordering::SeqCst) {
+        return Ok(());
+    }
+    reveal_main_window(&app)
+}
+
+fn reveal_main_window(app: &tauri::AppHandle) -> Result<(), String> {
+    let main = app
+        .get_webview_window("main")
+        .ok_or_else(|| "主窗口不可用".to_string())?;
+    main.show().map_err(|error| error.to_string())?;
+    main.set_focus().map_err(|error| error.to_string())?;
+    if let Some(splash) = app.get_webview_window("splash") {
+        splash.close().map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .manage(InstallTaskState::default())
+        .manage(ContentTaskState::default())
         .manage(GameTaskState::default())
         .manage(AuthTaskState::default())
+        .manage(StartupState::default())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .on_page_load(|webview, payload| {
+            if webview.label() == "splash"
+                && payload.event() == tauri::webview::PageLoadEvent::Finished
+                && !webview.state::<StartupState>().0.load(Ordering::SeqCst)
+            {
+                let _ = webview.window().show();
+            }
+        })
+        .setup(|app| {
+            let handle = app.handle().clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_secs(12));
+                let state = handle.state::<StartupState>();
+                if !state.0.swap(true, Ordering::SeqCst) {
+                    let _ = reveal_main_window(&handle);
+                }
+            });
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             bootstrap_app,
+            analyze_instance_crash,
             cancel_install,
+            check_content_updates,
             clean_temporary_downloads,
             clear_old_logs,
+            complete_startup,
             create_instance,
             delete_instance,
             delete_log,
             detect_java_runtimes,
             diagnostics,
             duplicate_instance,
+            export_instance,
             get_offline_profile,
             get_microsoft_account,
             get_install_status,
             inspect_java_runtime,
             install_managed_java,
             install_instance,
+            install_modpack,
+            install_content,
+            import_local_content,
             is_game_running,
             launch_game,
             login_microsoft,
             list_instances,
+            list_loader_versions,
+            list_content_versions,
+            list_instance_content,
+            list_instance_worlds,
             list_logs,
             load_version_catalog,
             memory_report,
             open_directory,
             pause_install,
             read_log,
+            remove_content,
+            remove_content_batch,
+            repair_instance,
             resume_install,
             save_offline_profile,
             logout_microsoft,
             select_instance,
+            search_content,
+            scan_instance_files,
             set_theme,
+            set_content_enabled,
+            set_content_enabled_batch,
             storage_report,
             update_instance,
+            update_content_batch,
             update_download_settings,
             update_storage_paths,
             update_settings
@@ -424,15 +772,49 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 
 #[derive(Default)]
 struct InstallTaskState(Arc<AtomicU8>);
 
 struct InstallTaskReset(Arc<AtomicU8>);
+
+#[derive(Default)]
+struct ContentTaskState(Arc<Mutex<HashSet<String>>>);
+
+struct ContentTaskReset {
+    tasks: Arc<Mutex<HashSet<String>>>,
+    instance_id: String,
+}
+
+impl Drop for ContentTaskReset {
+    fn drop(&mut self) {
+        release_content_task(&self.tasks, &self.instance_id);
+    }
+}
+
+fn acquire_content_task(
+    state: &ContentTaskState,
+    instance_id: &str,
+) -> Result<Arc<Mutex<HashSet<String>>>, String> {
+    let tasks = Arc::clone(&state.0);
+    {
+        let mut active = tasks.lock().map_err(|_| "内容任务状态不可用".to_string())?;
+        if !active.insert(instance_id.to_string()) {
+            return Err("该实例已有内容任务正在运行".to_string());
+        }
+    }
+    Ok(tasks)
+}
+
+fn release_content_task(tasks: &Arc<Mutex<HashSet<String>>>, instance_id: &str) {
+    if let Ok(mut active) = tasks.lock() {
+        active.remove(instance_id);
+    }
+}
 
 impl Drop for InstallTaskReset {
     fn drop(&mut self) {
@@ -447,6 +829,9 @@ struct GameTaskState(Arc<Mutex<HashMap<String, u32>>>);
 struct AuthTaskState(Arc<AtomicBool>);
 
 struct AuthTaskReset(Arc<AtomicBool>);
+
+#[derive(Default)]
+struct StartupState(AtomicBool);
 
 impl Drop for AuthTaskReset {
     fn drop(&mut self) {

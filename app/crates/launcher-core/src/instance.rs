@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use tempfile::NamedTempFile;
 use uuid::Uuid;
 
-pub const INSTANCE_SCHEMA_VERSION: u32 = 1;
+pub const INSTANCE_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -16,7 +16,7 @@ pub struct InstanceConfig {
     pub id: String,
     pub name: String,
     pub game_version: String,
-    pub loader: GameLoader,
+    pub loader: LoaderConfig,
     pub game_directory: PathBuf,
     pub java: JavaSelection,
     pub memory: MemorySettings,
@@ -32,6 +32,78 @@ pub struct InstanceConfig {
 #[serde(rename_all = "lowercase")]
 pub enum GameLoader {
     Vanilla,
+    Fabric,
+    Quilt,
+    Forge,
+    NeoForge,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LoaderConfig {
+    pub kind: GameLoader,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub profile_id: Option<String>,
+}
+
+impl LoaderConfig {
+    pub fn vanilla() -> Self {
+        Self {
+            kind: GameLoader::Vanilla,
+            version: None,
+            profile_id: None,
+        }
+    }
+
+    pub fn modded(kind: GameLoader, version: String, profile_id: String) -> Self {
+        Self {
+            kind,
+            version: Some(version),
+            profile_id: Some(profile_id),
+        }
+    }
+
+    pub fn is_vanilla(&self) -> bool {
+        self.kind == GameLoader::Vanilla
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum LoaderConfigWire {
+    Legacy(GameLoader),
+    Current {
+        kind: GameLoader,
+        version: Option<String>,
+        #[serde(rename = "profileId")]
+        profile_id: Option<String>,
+    },
+}
+
+impl<'de> Deserialize<'de> for LoaderConfig {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        match LoaderConfigWire::deserialize(deserializer)? {
+            LoaderConfigWire::Legacy(kind) => Ok(Self {
+                kind,
+                version: None,
+                profile_id: None,
+            }),
+            LoaderConfigWire::Current {
+                kind,
+                version,
+                profile_id,
+            } => Ok(Self {
+                kind,
+                version,
+                profile_id,
+            }),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -225,17 +297,24 @@ pub fn list_instances_in(paths: &AppPaths) -> InstanceResult<Vec<InstanceConfig>
 
         let contents = fs::read_to_string(&config_path)
             .map_err(|source| io_error("读取实例配置", &config_path, source))?;
-        let instance: InstanceConfig =
+        let mut instance: InstanceConfig =
             serde_json::from_str(&contents).map_err(|source| InstanceError::InvalidConfig {
                 path: config_path.clone(),
                 source,
             })?;
+        let needs_migration = instance.schema_version == 1 && instance.loader.is_vanilla();
+        if needs_migration {
+            instance.schema_version = INSTANCE_SCHEMA_VERSION;
+        }
         if instance.schema_version != INSTANCE_SCHEMA_VERSION
             || instance.id != folder_name.to_string_lossy()
-            || instance.loader != GameLoader::Vanilla
+            || !valid_loader_config(&instance.loader)
             || instance.game_directory != Path::new("game")
         {
             return Err(InstanceError::InvalidConfigStructure(config_path));
+        }
+        if needs_migration {
+            persist_instance_config(&entry.path(), &config_path, &instance)?;
         }
         instances.push(instance);
     }
@@ -288,7 +367,7 @@ pub fn create_instance_in(
             id: id.clone(),
             name: name.to_owned(),
             game_version: game_version.to_owned(),
-            loader: GameLoader::Vanilla,
+            loader: LoaderConfig::vanilla(),
             game_directory: PathBuf::from("game"),
             java: JavaSelection::Auto,
             memory: MemorySettings {
@@ -339,18 +418,7 @@ pub fn update_instance_in(
         return Err(InstanceError::InstanceNotFound(instance.id));
     }
 
-    let mut contents =
-        serde_json::to_vec_pretty(&instance).map_err(InstanceError::SerializeConfig)?;
-    contents.push(b'\n');
-    let mut temporary = NamedTempFile::new_in(&instance_dir)
-        .map_err(|source| io_error("创建实例配置临时文件", &instance_dir, source))?;
-    temporary
-        .write_all(&contents)
-        .and_then(|_| temporary.as_file().sync_all())
-        .map_err(|source| io_error("写入实例配置临时文件", temporary.path(), source))?;
-    temporary
-        .persist(&config_path)
-        .map_err(|error| io_error("替换实例配置", &config_path, error.error))?;
+    persist_instance_config(&instance_dir, &config_path, &instance)?;
     Ok(instance)
 }
 
@@ -493,7 +561,7 @@ fn io_error(action: &'static str, path: &std::path::Path, source: io::Error) -> 
 
 fn validate_instance(instance: &InstanceConfig) -> InstanceResult<()> {
     if instance.schema_version != INSTANCE_SCHEMA_VERSION
-        || instance.loader != GameLoader::Vanilla
+        || !valid_loader_config(&instance.loader)
         || instance.game_directory != Path::new("game")
         || instance.id.len() != 32
         || !instance
@@ -560,12 +628,50 @@ fn validate_instance(instance: &InstanceConfig) -> InstanceResult<()> {
     Ok(())
 }
 
+fn persist_instance_config(
+    instance_dir: &Path,
+    config_path: &Path,
+    instance: &InstanceConfig,
+) -> InstanceResult<()> {
+    let mut contents =
+        serde_json::to_vec_pretty(instance).map_err(InstanceError::SerializeConfig)?;
+    contents.push(b'\n');
+    let mut temporary = NamedTempFile::new_in(instance_dir)
+        .map_err(|source| io_error("创建实例配置临时文件", instance_dir, source))?;
+    temporary
+        .write_all(&contents)
+        .and_then(|_| temporary.as_file().sync_all())
+        .map_err(|source| io_error("写入实例配置临时文件", temporary.path(), source))?;
+    temporary
+        .persist(config_path)
+        .map_err(|error| io_error("替换实例配置", config_path, error.error))?;
+    Ok(())
+}
+
+fn valid_loader_config(loader: &LoaderConfig) -> bool {
+    match loader.kind {
+        GameLoader::Vanilla => loader.version.is_none() && loader.profile_id.is_none(),
+        GameLoader::Fabric | GameLoader::Quilt | GameLoader::Forge | GameLoader::NeoForge => {
+            loader.version.as_deref().is_some_and(valid_loader_value)
+                && loader.profile_id.as_deref().is_some_and(valid_loader_value)
+        }
+    }
+}
+
+fn valid_loader_value(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || ".-_+".contains(character))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         create_instance_in, delete_instance_in, duplicate_instance_in, list_instances_in,
         select_instance_in, update_instance_in, AdvancedSettings, CreateInstanceRequest,
-        DisplaySettings, GameLoader, InstallationInfo, InstanceConfig, JavaSelection,
+        DisplaySettings, InstallationInfo, InstanceConfig, JavaSelection, LoaderConfig,
         MemorySettings, INSTANCE_SCHEMA_VERSION,
     };
     use crate::data::{load_or_create_settings, AppPaths};
@@ -593,7 +699,7 @@ mod tests {
             id: "survival".to_string(),
             name: "原版生存".to_string(),
             game_version: "1.21".to_string(),
-            loader: GameLoader::Vanilla,
+            loader: LoaderConfig::vanilla(),
             game_directory: PathBuf::from("game"),
             java: JavaSelection::Auto,
             memory: MemorySettings {
@@ -643,6 +749,41 @@ mod tests {
                 .file_name()
                 .to_string_lossy()
                 .starts_with(".create-")));
+
+        fs::remove_dir_all(root).expect("temporary tree should be removable");
+    }
+
+    #[test]
+    fn migrates_legacy_vanilla_loader_config_atomically() {
+        let (root, paths) = temporary_paths();
+        let created = create_instance_in(
+            &paths,
+            CreateInstanceRequest {
+                name: "旧版实例".to_string(),
+                game_version: "1.20.1".to_string(),
+            },
+        )
+        .expect("fixture instance should be created");
+        let config_path = paths.instances_dir.join(&created.id).join("instance.json");
+        let mut legacy = serde_json::to_value(&created).expect("fixture should serialize");
+        legacy["schemaVersion"] = serde_json::json!(1);
+        legacy["loader"] = serde_json::json!("vanilla");
+        fs::write(
+            &config_path,
+            serde_json::to_vec_pretty(&legacy).expect("legacy fixture should serialize"),
+        )
+        .expect("legacy fixture should be written");
+
+        let migrated = list_instances_in(&paths).expect("legacy instance should migrate");
+        assert_eq!(migrated[0].schema_version, INSTANCE_SCHEMA_VERSION);
+        assert!(migrated[0].loader.is_vanilla());
+        let persisted: serde_json::Value = serde_json::from_slice(
+            &fs::read(&config_path).expect("migrated config should be readable"),
+        )
+        .expect("migrated config should be valid");
+        assert_eq!(persisted["schemaVersion"], INSTANCE_SCHEMA_VERSION);
+        assert_eq!(persisted["loader"]["kind"], "vanilla");
+        assert!(!config_path.with_extension("tmp").exists());
 
         fs::remove_dir_all(root).expect("temporary tree should be removable");
     }

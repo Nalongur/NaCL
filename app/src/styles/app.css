@@ -1509,6 +1509,77 @@ button:focus-visible {
   overflow: hidden;
 }
 
+.community-download-page {
+  display: grid;
+  min-height: 0;
+}
+
+.community-download-card {
+  min-height: 360px;
+}
+
+.community-instance-picker {
+  min-width: 290px;
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.community-instance-picker select {
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  background: var(--main);
+  color: var(--text);
+}
+
+.community-kind-grid {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 28px;
+}
+
+.community-kind-grid button {
+  min-height: 108px;
+  display: grid;
+  align-content: center;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--main);
+  color: var(--text);
+  text-align: left;
+}
+
+.community-kind-grid button:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.community-kind-grid strong {
+  font-size: 15px;
+}
+
+.community-kind-grid span {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.community-download-actions {
+  width: 100%;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: auto;
+  padding-top: 28px;
+}
+
 .search-input {
   width: 100%;
   height: 40px;
@@ -2064,6 +2135,19 @@ button:focus-visible {
 
   .download-side {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .community-kind-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .community-download-card .feature-card-head {
+    flex-direction: column;
+  }
+
+  .community-instance-picker {
+    width: 100%;
+    min-width: 0;
   }
 
   .version-list-head,

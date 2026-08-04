@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>NaCL 正在启动</title>
+    <script>
+      (() => {
+        let theme;
+        try {
+          theme = localStorage.getItem("nacl-theme");
+        } catch {
+          // Continue with the operating-system preference.
+        }
+        if (theme !== "light" && theme !== "dark") {
+          theme = window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+        }
+        document.documentElement.dataset.theme = theme;
+      })();
+    </script>
+    <style>
+      :root {
+        color-scheme: dark;
+        --background: #1a1e1f;
+        --text: #f2f6f6;
+        --muted: #929c9d;
+        --accent: #59d4d1;
+      }
+
+      :root[data-theme="light"] {
+        color-scheme: light;
+        --background: #fbfdfc;
+        --text: #171b1c;
+        --muted: #697374;
+        --accent: #168f92;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+      }
+
+      body {
+        display: grid;
+        place-items: center;
+        background: var(--background);
+        color: var(--text);
+        font-family: "Segoe UI Variable", "Microsoft YaHei UI", "Segoe UI", sans-serif;
+        user-select: none;
+      }
+
+      main {
+        display: grid;
+        justify-items: center;
+        gap: 8px;
+      }
+
+      svg {
+        width: 96px;
+        height: 96px;
+        display: block;
+      }
+
+      h1 {
+        margin: 5px 0 0;
+        font-size: 17px;
+        font-weight: 650;
+        letter-spacing: 0.05em;
+      }
+
+      p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .accent {
+        width: 40px;
+        height: 2px;
+        margin-top: 7px;
+        background: var(--accent);
+      }
+    </style>
+  </head>
+  <body>
+    <main role="status" aria-live="polite">
+      <svg viewBox="0 0 512 512" role="img" aria-label="NaCL">
+        <path fill="#657776" d="M88 24H448V56H480V432H448V464H88Z" />
+        <path fill="#a1bab8" d="M64 56H432V88H464V448H432V480H64Z" />
+        <path fill="#e3e7e6" d="M40 88H400V120H440V408H392V456H40Z" />
+        <g fill="#223031">
+          <path
+            transform="translate(58 400) scale(.31 -.31)"
+            d="M109 -30H11L124 778H244L380 170Q383 156 386.5 140.5Q390 125 393 109Q396 143 399 171L470 778H568L455 -30H337L213 520Q208 544 201 579Q194 614 189 647Q186 612 182 577.5Q178 543 175 520Z"
+          />
+          <path
+            transform="translate(213 400) scale(.31 -.31)"
+            d="M360 -30H268L273 25Q251 -5 223.5 -22.5Q196 -40 166 -40Q118 -40 83.5 -8Q49 24 36 96.5Q23 169 40 290Q61 442 116.5 515.5Q172 589 245 589Q312 589 342 528L349 580H446ZM139 279Q131 215 130.5 163Q130 111 144 80.5Q158 50 192 50Q216 50 235.5 67.5Q255 85 269 113Q283 141 291 172L323 395Q324 441 305.5 470Q287 499 254 499Q223 499 200 469Q177 439 162 389Q147 339 139 279Z"
+          />
+        </g>
+      </svg>
+      <h1>Na Craft Launcher</h1>
+      <p>正在读取配置与实例</p>
+      <div class="accent" aria-hidden="true"></div>
+    </main>
+  </body>
+</html>

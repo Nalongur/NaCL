@@ -387,9 +387,12 @@ fn launch_game_in(
     if instance.installation.state != InstallationState::Ready {
         return Err(LaunchError::InstanceNotReady);
     }
-    let metadata_path = paths
-        .versions_dir
-        .join(format!("{}.json", instance.game_version));
+    let metadata_id = instance
+        .loader
+        .profile_id
+        .as_deref()
+        .unwrap_or(&instance.game_version);
+    let metadata_path = paths.versions_dir.join(format!("{metadata_id}.json"));
     if !metadata_path.is_file() {
         return Err(LaunchError::MissingVersionMetadata(metadata_path));
     }
@@ -405,9 +408,14 @@ fn launch_game_in(
         return Err(LaunchError::MissingMainClass);
     }
 
-    let client_path = paths
-        .versions_dir
-        .join(format!("{}.jar", instance.game_version));
+    let profile_client_path = paths.versions_dir.join(format!("{metadata_id}.jar"));
+    let client_path = if profile_client_path.is_file() {
+        profile_client_path
+    } else {
+        paths
+            .versions_dir
+            .join(format!("{}.jar", instance.game_version))
+    };
     if !client_path.is_file() {
         return Err(LaunchError::MissingClient(client_path));
     }
@@ -450,7 +458,7 @@ fn launch_game_in(
 
     let replacements = HashMap::from([
         ("${auth_player_name}", identity.username.clone()),
-        ("${version_name}", instance.game_version.clone()),
+        ("${version_name}", metadata_id.to_owned()),
         (
             "${game_directory}",
             game_directory.to_string_lossy().into_owned(),
@@ -480,7 +488,7 @@ fn launch_game_in(
         ),
         ("${launcher_name}", LAUNCHER_NAME.to_string()),
         ("${launcher_version}", LAUNCHER_VERSION.to_string()),
-        ("${classpath}", classpath_value),
+        ("${classpath}", classpath_value.clone()),
         (
             "${classpath_separator}",
             if cfg!(windows) { ";" } else { ":" }.to_string(),
@@ -502,6 +510,26 @@ fn launch_game_in(
     if let Some(arguments) = &metadata.arguments {
         jvm_arguments.extend(expand_arguments(&arguments.jvm, &replacements, true));
         game_arguments.extend(expand_arguments(&arguments.game, &replacements, true));
+        if let Some(arguments) = &metadata.minecraft_arguments {
+            game_arguments.extend(
+                split_custom_arguments(arguments)?
+                    .into_iter()
+                    .map(|value| replace_placeholders(&value, &replacements)),
+            );
+        }
+        if !jvm_arguments
+            .iter()
+            .any(|argument| argument == "${classpath}" || argument == &classpath_value)
+        {
+            jvm_arguments.extend(
+                [
+                    "-Djava.library.path=${natives_directory}",
+                    "-cp",
+                    "${classpath}",
+                ]
+                .map(|value| replace_placeholders(value, &replacements)),
+            );
+        }
     } else if let Some(arguments) = &metadata.minecraft_arguments {
         game_arguments.extend(
             split_custom_arguments(arguments)?
