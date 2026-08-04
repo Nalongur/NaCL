@@ -2,7 +2,7 @@
 
 生效日期 / Effective date: 2026-08-03
 
-适用版本 / Applies to: NaCL 0.3.0 Stage 1 release, source builds, and locally built development versions
+适用版本 / Applies to: NaCL 0.3.0, NaCL 0.4.0, source builds, and locally built development versions
 
 本说明用于公开 Na Craft Launcher（NaCL）当前及计划中的数据处理边界。NaCL 是本地桌面应用，目前没有由项目维护者运营的账号、同步、遥测、广告或日志收集服务器。
 
@@ -38,6 +38,7 @@ This notice describes the current and planned data-handling boundaries of Na Cra
 | Microsoft 刷新令牌 | Microsoft 返回的长期刷新令牌，经 Windows 当前用户级 DPAPI 加密 | 应用重启后恢复登录并获取新的短期令牌 | `%APPDATA%\NaCL\config\microsoft-refresh-token.bin` | 退出账号时删除；也可手动删除 |
 | 实例元数据 | 实例名称、Minecraft 版本、内存、显示和高级参数 | 管理隔离实例 | 默认 `%APPDATA%\NaCL\instances\<instance-id>`，可自定义 | 保留到用户删除实例 |
 | 实例游戏目录 | 存档、截图、配置及游戏生成的数据 | 提供实例隔离 | 实例目录下的 `<instance-id>\game` | 保留到用户删除或迁移 |
+| 模组与内容清单 | 加载器版本、Mod/资源包/光影包文件、来源版本、哈希、启用状态和整合包索引 | 安装、校验、更新和管理模组内容 | 实例目录及其 `.nacl` 子目录 | 保留到用户移除内容或删除实例；移除文件先进入实例回收目录 |
 | 版本与资源缓存 | 版本清单、版本 JSON、客户端、依赖库、资源索引和资源对象 | 安装与校验原版文件 | 默认 `%LOCALAPPDATA%\NaCL\cache`，可自定义 | 保留到用户清理或删除 |
 | 托管 Java | 下载的 Eclipse Temurin JRE 及运行时信息 | 为对应游戏版本提供 Java | `%LOCALAPPDATA%\NaCL\runtimes` | 保留到用户清理或删除 |
 | 临时下载 | 下载中的 `.part` 文件及安装中间文件 | 支持下载重试和原子替换 | `%LOCALAPPDATA%\NaCL\cache\downloads` | 完成后移除；失败文件可由用户清理 |
@@ -59,6 +60,7 @@ NaCL 不会主动扫描用户的文档、浏览器数据、密码库、通讯录
 | Eclipse Adoptium API（`api.adoptium.net`）及其下载地址 | 用户选择下载托管 Java | Windows 平台、CPU 架构、所需 Java 主版本和常规 HTTPS 请求信息 | Eclipse Temurin JRE 元数据与压缩包 |
 | Microsoft、Xbox 与 Minecraft 身份服务 | 用户主动选择 Microsoft 登录、恢复登录、资格校验或正版启动 | OAuth 授权请求、短期令牌、Xbox/XSTS 交换材料及服务要求的账号信息 | Minecraft 短期访问令牌、资格、UUID、玩家名、皮肤与披风档案 |
 | GitHub | 用户访问仓库、提交 Issue 或主动上传诊断材料 | 用户自行提交的账号信息、Issue 文本、附件及 GitHub 记录的网络元数据 | 项目源码、Issue 与支持沟通 |
+| Modrinth API 与其 CDN | 用户搜索、安装或更新社区内容与整合包 | 搜索词、Minecraft/加载器版本、所请求项目或文件及常规 HTTPS 网络信息 | 项目元数据、版本清单、Mod、资源包、光影包和 `.mrpack` 文件 |
 
 NaCL 不会把 Microsoft 令牌、离线档案或本地日志发送到 Eclipse Adoptium；也不会把 Java 下载信息发送给 Mojang。各服务只接收完成对应请求所需的信息。
 

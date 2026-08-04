@@ -1,10 +1,13 @@
 pub mod auth;
+pub mod content;
 pub mod data;
 pub mod downloader;
 pub mod installer;
 pub mod instance;
 pub mod java;
 pub mod launch;
+pub mod loaders;
 pub mod logs;
+pub mod maintenance;
 pub mod system;
 pub mod versions;

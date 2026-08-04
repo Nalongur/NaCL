@@ -7,6 +7,8 @@ export type Page =
   | "help";
 
 export type Theme = "dark" | "light";
+export type LoaderKind = "vanilla" | "fabric" | "quilt" | "forge" | "neoforge";
+export type ContentKind = "mod" | "resourcepack" | "shader" | "datapack" | "modpack";
 export type DefaultPage = "home" | "instances" | "downloads";
 export type SettingsSection =
   | "general"
@@ -18,6 +20,7 @@ export type SettingsSection =
 export type InstanceTab =
   | "overview"
   | "version"
+  | "content"
   | "runtime"
   | "display"
   | "files"
@@ -65,7 +68,11 @@ export interface LauncherInstance {
   id: string;
   name: string;
   gameVersion: string;
-  loader: "vanilla";
+  loader: {
+    kind: LoaderKind;
+    version?: string;
+    profileId?: string;
+  };
   gameDirectory: string;
   java: { mode: "auto" } | { mode: "custom"; path: string };
   memory: {
@@ -182,8 +189,163 @@ export interface VersionCatalog {
   refreshedEpochMs: number;
 }
 
+export interface LoaderVersion {
+  version: string;
+  stable: boolean;
+  recommended: boolean;
+}
+
+export interface LoaderCatalog {
+  gameVersion: string;
+  loader: LoaderKind;
+  versions: LoaderVersion[];
+}
+
+export interface ContentProject {
+  projectId: string;
+  slug: string;
+  title: string;
+  description: string;
+  author: string;
+  iconUrl: string | null;
+  downloads: number;
+  dateModified: string;
+  projectType: ContentKind;
+  categories: string[];
+  versions: string[];
+}
+
+export interface ContentSearchPage {
+  hits: ContentProject[];
+  offset: number;
+  limit: number;
+  totalHits: number;
+}
+
+export interface VersionDependency {
+  versionId: string | null;
+  projectId: string | null;
+  fileName: string | null;
+  dependencyType: "required" | "optional" | "incompatible" | "embedded";
+}
+
+export interface ContentVersion {
+  id: string;
+  projectId: string;
+  name: string;
+  versionNumber: string;
+  versionType: "release" | "beta" | "alpha";
+  datePublished: string;
+  downloads: number;
+  gameVersions: string[];
+  loaders: string[];
+  dependencies: VersionDependency[];
+  files: Array<{
+    hashes: Record<string, string>;
+    url: string;
+    filename: string;
+    primary: boolean;
+    size: number;
+  }>;
+}
+
+export interface ManagedContent {
+  id: string;
+  kind: Exclude<ContentKind, "modpack">;
+  source: "modrinth" | "local";
+  projectId: string | null;
+  versionId: string | null;
+  versionNumber: string | null;
+  name: string;
+  fileName: string;
+  sha1: string | null;
+  sha512: string | null;
+  size: number;
+  enabled: boolean;
+  managed: boolean;
+  installedEpochMs: number;
+  dependencies: string[];
+  modMetadata: ModMetadata | null;
+  diagnostics: string[];
+  worldName: string | null;
+}
+
+export interface WorldInfo {
+  name: string;
+  datapackCount: number;
+}
+
+export interface ModMetadata {
+  format: string;
+  modIds: string[];
+  name: string;
+  version: string;
+  description: string;
+  authors: string[];
+  dependencies: ModDependency[];
+}
+
+export interface ModDependency {
+  id: string;
+  requirement: string;
+  mandatory: boolean;
+}
+
+export interface ContentUpdate {
+  itemId: string;
+  versionId: string;
+  versionNumber: string;
+}
+
+export interface InstanceFileIssue {
+  path: string;
+  category: string;
+  state: string;
+  detail: string;
+  repairable: boolean;
+}
+
+export interface InstanceFileReport {
+  instanceId: string;
+  scannedFiles: number;
+  validFiles: number;
+  missingFiles: number;
+  corruptedFiles: number;
+  issues: InstanceFileIssue[];
+}
+
+export interface RepairInstanceReport {
+  before: InstanceFileReport;
+  after: InstanceFileReport;
+  repairedFiles: number;
+}
+
+export interface CrashFinding {
+  code: string;
+  severity: string;
+  title: string;
+  description: string;
+  actions: string[];
+  evidence: string[];
+}
+
+export interface CrashAnalysis {
+  instanceId: string;
+  status: "error" | "healthy" | "no-data" | "unknown";
+  summary: string;
+  sourceFiles: string[];
+  findings: CrashFinding[];
+  analyzedEpochMs: number;
+}
+
+export interface ExportInstanceReport {
+  destination: string;
+  files: number;
+  bytes: number;
+}
+
 export interface InstallProgress {
-  stage: "metadata" | "libraries" | "assets" | "finalizing" | "complete";
+  stage: "metadata" | "loader" | "libraries" | "assets" | "finalizing" | "complete";
   completedFiles: number;
   totalFiles: number;
   currentFile: string;
