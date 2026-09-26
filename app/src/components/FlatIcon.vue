@@ -8,6 +8,7 @@ export type FlatIconName =
   | "settings"
   | "user"
   | "plus"
+  | "trash"
   | "play"
   | "refresh"
   | "moon"
@@ -56,6 +57,9 @@ defineProps<{
     </template>
     <template v-else-if="name === 'plus'">
       <path d="M12 5v14M5 12h14" />
+    </template>
+    <template v-else-if="name === 'trash'">
+      <path d="M4.5 7h15M9 4.5h6M7 7l.7 12h8.6L17 7M10 10v6M14 10v6" />
     </template>
     <template v-else-if="name === 'play'">
       <path d="m8 5 11 7-11 7z" />

@@ -17,7 +17,7 @@ NaCL is a minimalist Minecraft: Java Edition launcher for Windows, built with Ta
 - **社区内容管理**：从 Modrinth 搜索、安装、更新、启停和移除 Mod、资源包、光影包与数据包，也可导入本地文件。
 - **整合包安装**：支持在线 Modrinth 项目和本地 `.mrpack`，校验文件大小、SHA-1/SHA-512 与归档路径。
 - **依赖与兼容诊断**：读取常见 Mod 元数据，检查缺少前置、重复顶层 ID 和加载器不匹配；正确识别 Fabric JAR-in-JAR 模块。
-- **实例维护**：创建、复制、删除、配置和导出实例，校验并补全受管文件，分析常见崩溃原因。
+- **实例维护**：创建、复制、可恢复删除、配置和导出实例，校验并补全受管文件，分析常见崩溃原因。
 - **Microsoft 与离线身份**：支持系统浏览器 Microsoft 登录、正版启动、官方皮肤/披风资料，以及仅保存在本机的离线档案。
 - **Java 与内存管理**：检测本机 Java、选择自定义运行时、下载托管 Eclipse Temurin，并按实例配置 JVM 与内存。
 - **原生下载引擎**：Rust Range 分片下载、断点状态、重试、限速、流式回退和完整性校验，不依赖外置 aria2。
@@ -27,7 +27,7 @@ NaCL is a minimalist Minecraft: Java Edition launcher for Windows, built with Ta
 - **Multi-loader instances** for Vanilla, Fabric, Quilt, Forge, and NeoForge.
 - **Modrinth content management** for mods, resource packs, shaders, data packs, and `.mrpack` modpacks.
 - **Dependency and compatibility diagnostics**, including Fabric nested-module detection.
-- **Instance maintenance**, managed-file verification/repair, crash analysis, and privacy-conscious ZIP export.
+- **Instance maintenance** with recoverable deletion, managed-file verification/repair, crash analysis, and privacy-conscious ZIP export.
 - **Microsoft-authenticated and offline launch**, Java/runtime management, and per-instance JVM settings.
 - **Native Rust downloading** with segmented Range requests, resume state, retries, limits, fallback, and integrity checks.
 

@@ -2103,7 +2103,7 @@ dependencies = [
 
 [[package]]
 name = "nacl"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "nacl-launcher-core",
  "serde",
@@ -2116,7 +2116,7 @@ dependencies = [
 
 [[package]]
 name = "nacl-launcher-core"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "base64 0.22.1",
  "md5",

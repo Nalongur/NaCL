@@ -200,6 +200,11 @@ button:focus-visible {
   border-right: 1px solid var(--line);
 }
 
+.context-sidebar > :first-child {
+  min-height: 0;
+  overflow-y: auto;
+}
+
 .context-title {
   margin: 3px 12px 25px;
   font-size: 16px;
@@ -328,6 +333,36 @@ button:focus-visible {
 .new-instance .flat-icon {
   width: 17px;
   height: 17px;
+}
+
+.instance-recycle-link {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  margin-top: 5px;
+  padding: 0 13px;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+  text-align: left;
+}
+
+.instance-recycle-link:hover,
+.instance-recycle-link.active {
+  background: var(--surface-active);
+  color: var(--text);
+}
+
+.instance-recycle-link .flat-icon {
+  width: 17px;
+  height: 17px;
+}
+
+.instance-recycle-count {
+  margin-left: auto;
+  color: var(--accent);
+  font-size: 11px;
 }
 
 .context-links {
@@ -1252,6 +1287,23 @@ button:focus-visible {
   padding: 32px 3px 4px 0;
 }
 
+.install-drawer-form {
+  padding-top: 0;
+}
+
+.install-drawer-scroll {
+  flex: 1;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.install-drawer-actions {
+  flex: 0 0 auto;
+  margin-top: 0;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
 .form-intro {
   margin-bottom: 30px;
   padding: 14px 16px;
@@ -1489,6 +1541,46 @@ button:focus-visible {
   color: var(--danger);
 }
 
+.deleted-instances {
+  width: 100%;
+  margin: 18px 0 26px;
+  padding: 20px 24px;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.deleted-instances-heading,
+.deleted-instance-row,
+.deleted-instance-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.deleted-instances-heading h2 {
+  margin: 4px 0 0;
+  font-size: 17px;
+}
+
+.deleted-instances-heading p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.deleted-instance-row {
+  min-height: 64px;
+  border-top: 1px solid var(--line);
+}
+
+.deleted-instance-actions {
+  flex-shrink: 0;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .download-layout {
   display: grid;
   grid-template-columns: minmax(0, 1.6fr) minmax(240px, 0.7fr);
@@ -1604,8 +1696,10 @@ button:focus-visible {
 .version-list {
   width: 100%;
   min-width: 0;
+  min-height: 0;
   flex: 1;
   overflow: auto;
+  overscroll-behavior: contain;
   border-top: 1px solid var(--line);
 }
 
