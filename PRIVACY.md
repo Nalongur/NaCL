@@ -2,7 +2,7 @@
 
 生效日期 / Effective date: 2026-08-03
 
-适用版本 / Applies to: NaCL 0.3.0, NaCL 0.4.0, source builds, and locally built development versions
+适用版本 / Applies to: NaCL 0.3.0, NaCL 0.4.0, NaCL 0.4.1, source builds, and locally built development versions
 
 本说明用于公开 Na Craft Launcher（NaCL）当前及计划中的数据处理边界。NaCL 是本地桌面应用，目前没有由项目维护者运营的账号、同步、遥测、广告或日志收集服务器。
 
@@ -36,8 +36,8 @@ This notice describes the current and planned data-handling boundaries of Na Cra
 | 离线档案 | 用户输入的游戏用户名和据此生成的稳定 UUID | 本地离线身份与游戏启动 | `%APPDATA%\NaCL\config\offline-profile.json` | 保留到用户修改或删除 |
 | Microsoft 账号档案 | Minecraft UUID、玩家名、官方皮肤与披风的公开资料 URL 和状态 | 显示账号并准备正版启动 | `%APPDATA%\NaCL\config\microsoft-account.json` | 保留到退出账号或手动删除 |
 | Microsoft 刷新令牌 | Microsoft 返回的长期刷新令牌，经 Windows 当前用户级 DPAPI 加密 | 应用重启后恢复登录并获取新的短期令牌 | `%APPDATA%\NaCL\config\microsoft-refresh-token.bin` | 退出账号时删除；也可手动删除 |
-| 实例元数据 | 实例名称、Minecraft 版本、内存、显示和高级参数 | 管理隔离实例 | 默认 `%APPDATA%\NaCL\instances\<instance-id>`，可自定义 | 保留到用户删除实例 |
-| 实例游戏目录 | 存档、截图、配置及游戏生成的数据 | 提供实例隔离 | 实例目录下的 `<instance-id>\game` | 保留到用户删除或迁移 |
+| 实例元数据 | 实例名称、Minecraft 版本、内存、显示和高级参数 | 管理隔离实例 | 默认 `%APPDATA%\NaCL\instances\<instance-id>`，可自定义 | 移入回收区后保留到用户彻底删除 |
+| 实例游戏目录 | 存档、截图、配置及游戏生成的数据 | 提供实例隔离 | 实例目录下的 `<instance-id>\game`；删除后位于当前实例目录的 `.deleted\<instance-id>\game` | 移入回收区后保留到用户彻底删除 |
 | 模组与内容清单 | 加载器版本、Mod/资源包/光影包文件、来源版本、哈希、启用状态和整合包索引 | 安装、校验、更新和管理模组内容 | 实例目录及其 `.nacl` 子目录 | 保留到用户移除内容或删除实例；移除文件先进入实例回收目录 |
 | 版本与资源缓存 | 版本清单、版本 JSON、客户端、依赖库、资源索引和资源对象 | 安装与校验原版文件 | 默认 `%LOCALAPPDATA%\NaCL\cache`，可自定义 | 保留到用户清理或删除 |
 | 托管 Java | 下载的 Eclipse Temurin JRE 及运行时信息 | 为对应游戏版本提供 Java | `%LOCALAPPDATA%\NaCL\runtimes` | 保留到用户清理或删除 |
@@ -120,8 +120,9 @@ NaCL 将离线用户名、UUID 和空的在线认证字段传给本机 Minecraft
 - 设置、实例和缓存保留在本机，直到用户通过应用功能或文件系统删除
 - 日志可由用户逐个删除，或按设置的保留天数清理
 - 未完成下载和缓存可通过存储清理功能或删除对应目录移除
+- 在应用中删除实例会将整个实例目录移入当前实例目录的 `.deleted` 回收区；可从实例页恢复或彻底删除。回收区不会自动清理，也会占用磁盘空间
 - 卸载应用不一定自动删除 `%APPDATA%\NaCL` 和 `%LOCALAPPDATA%\NaCL`
-- 删除实例目录可能同时删除世界存档、截图、资源包和本地配置，操作前应备份重要内容
+- 彻底删除实例会一并删除世界存档、截图、资源包和本地配置，操作前应备份重要内容
 
 NaCL 维护者不持有这些本地文件，无法代替用户恢复、导出或远程删除设备上的数据。
 
@@ -164,8 +165,8 @@ In the current version:
 | Offline profile | User-entered game username and the stable UUID derived from it | Local offline identity and game launch | `%APPDATA%\NaCL\config\offline-profile.json` | Until changed or deleted by the user |
 | Microsoft account profile | Minecraft UUID, player name, and public official skin/cape URLs and states | Display the account and prepare authenticated launch | `%APPDATA%\NaCL\config\microsoft-account.json` | Until sign-out or manual deletion |
 | Microsoft refresh token | Long-lived Microsoft refresh token encrypted with Windows current-user DPAPI | Restore sign-in and obtain new short-lived tokens after restart | `%APPDATA%\NaCL\config\microsoft-refresh-token.bin` | Deleted on sign-out; may also be deleted manually |
-| Instance metadata | Instance name, Minecraft version, memory, display, and advanced arguments | Manage isolated instances | `%APPDATA%\NaCL\instances\<instance-id>` by default; customizable | Until the instance is deleted |
-| Instance game directory | Worlds, screenshots, configuration, and game-generated data | Keep instances isolated | `<instance-id>\game` under the active instance directory | Until deleted or moved by the user |
+| Instance metadata | Instance name, Minecraft version, memory, display, and advanced arguments | Manage isolated instances | `%APPDATA%\NaCL\instances\<instance-id>` by default; customizable | Retained in the recycle area until permanently deleted |
+| Instance game directory | Worlds, screenshots, configuration, and game-generated data | Keep instances isolated | `<instance-id>\game` under the active instance directory; `.deleted\<instance-id>\game` after deletion | Retained in the recycle area until permanently deleted |
 | Version and asset cache | Version manifests, version JSON, client, libraries, asset indexes, and asset objects | Install and verify vanilla files | `%LOCALAPPDATA%\NaCL\cache` by default; customizable | Until cleaned or deleted by the user |
 | Managed Java | Downloaded Eclipse Temurin JREs and runtime information | Provide Java for compatible game versions | `%LOCALAPPDATA%\NaCL\runtimes` | Until cleaned or deleted by the user |
 | Temporary downloads | In-progress `.part` files and installation intermediates | Support retries and atomic replacement | `%LOCALAPPDATA%\NaCL\cache\downloads` | Removed on success; failed files may be cleaned by the user |
@@ -246,8 +247,9 @@ The maintainers process only support material the user chooses to submit. Public
 - settings, instances, and caches remain on the device until removed through application controls or the file system
 - logs can be deleted individually or expired according to the configured retention period
 - incomplete downloads and caches can be removed with storage-cleanup functions or by deleting their directories
+- deleting an instance in the app moves its entire directory to `.deleted` under the active instance directory; it can be restored or permanently deleted from the Instances page. The recycle area is not cleaned automatically and continues to use disk space
 - uninstalling the application may not automatically remove `%APPDATA%\NaCL` and `%LOCALAPPDATA%\NaCL`
-- deleting an instance directory may also remove worlds, screenshots, resource packs, and local configuration; important files should be backed up first
+- permanently deleting an instance also removes worlds, screenshots, resource packs, and local configuration; important files should be backed up first
 
 The NaCL maintainers do not possess these local files and therefore cannot restore, export, or remotely delete them on the user's behalf.
 

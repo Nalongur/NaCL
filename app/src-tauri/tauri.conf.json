@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "NaCL",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "identifier": "com.nacraft.launcher",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -40,7 +40,18 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": {
+        "default-src": "'self'",
+        "connect-src": "ipc: http://ipc.localhost",
+        "img-src": "'self' data: https://textures.minecraft.net",
+        "font-src": "'self'",
+        "style-src": "'self' 'unsafe-inline'",
+        "script-src": "'self'",
+        "object-src": "'none'",
+        "base-uri": "'none'",
+        "form-action": "'none'"
+      },
+      "devCsp": null
     }
   },
   "bundle": {

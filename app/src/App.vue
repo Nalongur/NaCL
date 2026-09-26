@@ -6,6 +6,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import DownloadStrategyPanel from "./components/DownloadStrategyPanel.vue";
 import ContentBrowserDrawer from "./components/ContentBrowserDrawer.vue";
+import DeletedInstancesPanel from "./components/DeletedInstancesPanel.vue";
 import FlatIcon, { type FlatIconName } from "./components/FlatIcon.vue";
 import InstallInstanceDrawer from "./components/InstallInstanceDrawer.vue";
 import InstanceContentPanel from "./components/InstanceContentPanel.vue";
@@ -136,6 +137,10 @@ const storagePaths = ref<StoragePathSettings>({
   cacheDirectory: null,
 });
 const instances = ref<LauncherInstance[]>([]);
+const deletedInstances = ref<LauncherInstance[]>([]);
+const deletedInstancesError = ref("");
+const deletedInstancesBusy = ref(false);
+const showDeletedInstances = ref(false);
 const selectedInstanceId = ref<string | null>(null);
 const instancesState = ref<"loading" | "ready" | "unavailable">("loading");
 const installPanelOpen = ref(false);
@@ -573,6 +578,7 @@ function formatArchitecture(architecture?: string) {
 
 function setPage(page: Page) {
   currentPage.value = page;
+  if (page !== "instances") showDeletedInstances.value = false;
   if (page === "downloads") void loadVersionCatalog(false);
   if (page === "logs") void loadLogs();
   if (page === "settings") void loadStorage();
@@ -583,6 +589,7 @@ function setPage(page: Page) {
 }
 
 function selectInstance(instance: LauncherInstance, navigateToDetails = currentPage.value !== "home") {
+  showDeletedInstances.value = false;
   selectedInstanceId.value = instance.id;
   launcherSettings.value.selectedInstanceId = instance.id;
   if (navigateToDetails) currentPage.value = "instances";
@@ -592,6 +599,7 @@ function selectInstance(instance: LauncherInstance, navigateToDetails = currentP
 }
 
 function beginAddInstance() {
+  showDeletedInstances.value = false;
   setPage("downloads");
   downloadSection.value = "versions";
   selectedVersion.value = null;
@@ -1177,7 +1185,14 @@ async function duplicateSelectedInstance() {
 
 async function deleteSelectedInstance() {
   const instance = selectedInstance.value;
-  if (!instance || !window.confirm(`删除实例“${instance.name}”及其存档和配置？此操作无法撤销。`)) return;
+  if (!instance || instanceSaveState.value === "saving") return;
+  instanceSaveError.value = "";
+  if (launchState.value !== "idle" && launchedInstanceId.value === instance.id) {
+    instanceSaveError.value = "游戏正在运行，无法移动此实例到回收区";
+    return;
+  }
+  if (!window.confirm(`将实例“${instance.name}”及其存档移到回收区？之后可在实例页恢复。`)) return;
+  instanceSaveState.value = "saving";
   try {
     const settings = await invoke<LauncherSettings>("delete_instance", {
       instanceId: instance.id,
@@ -1185,8 +1200,55 @@ async function deleteSelectedInstance() {
     instances.value = instances.value.filter((candidate) => candidate.id !== instance.id);
     launcherSettings.value = settings;
     selectedInstanceId.value = settings.selectedInstanceId;
+    deletedInstances.value = [...deletedInstances.value, instance].sort((left, right) =>
+      left.name.localeCompare(right.name, "zh-CN"),
+    );
+    showDeletedInstances.value = true;
   } catch (error) {
     instanceSaveError.value = typeof error === "string" ? error : "删除实例失败";
+  } finally {
+    instanceSaveState.value = "idle";
+  }
+}
+
+async function restoreDeletedInstance(instanceId: string) {
+  if (deletedInstancesBusy.value) return;
+  deletedInstancesBusy.value = true;
+  deletedInstancesError.value = "";
+  try {
+    const instance = await invoke<LauncherInstance>("restore_instance", { instanceId });
+    deletedInstances.value = deletedInstances.value.filter((item) => item.id !== instanceId);
+    instances.value = [...instances.value, instance].sort((left, right) =>
+      left.name.localeCompare(right.name, "zh-CN"),
+    );
+    selectedInstanceId.value = instanceId;
+    showDeletedInstances.value = false;
+    instanceSaveError.value = "";
+    try {
+      launcherSettings.value = await invoke<LauncherSettings>("select_instance", { instanceId });
+    } catch (error) {
+      instanceSaveError.value = `实例已恢复，但无法保存当前选择：${String(error)}`;
+    }
+  } catch (error) {
+    deletedInstancesError.value = typeof error === "string" ? error : "恢复实例失败";
+  } finally {
+    deletedInstancesBusy.value = false;
+  }
+}
+
+async function permanentlyDeleteInstance(instanceId: string) {
+  const instance = deletedInstances.value.find((item) => item.id === instanceId);
+  if (!instance || deletedInstancesBusy.value) return;
+  if (!window.confirm(`彻底删除“${instance.name}”及其存档？此操作无法撤销。`)) return;
+  deletedInstancesBusy.value = true;
+  deletedInstancesError.value = "";
+  try {
+    await invoke("permanently_delete_instance", { instanceId });
+    deletedInstances.value = deletedInstances.value.filter((item) => item.id !== instanceId);
+  } catch (error) {
+    deletedInstancesError.value = typeof error === "string" ? error : "彻底删除实例失败";
+  } finally {
+    deletedInstancesBusy.value = false;
   }
 }
 
@@ -1368,6 +1430,16 @@ async function loadInstances() {
   }
 }
 
+async function loadDeletedInstances() {
+  try {
+    deletedInstances.value = await invoke<LauncherInstance[]>("list_deleted_instances");
+    deletedInstancesError.value = "";
+  } catch (error) {
+    deletedInstancesError.value = typeof error === "string" ? error : "读取实例回收区失败";
+    showDeletedInstances.value = true;
+  }
+}
+
 async function syncInstallStatus() {
   try {
     const status = await invoke<string>("get_install_status");
@@ -1422,6 +1494,7 @@ onMounted(async () => {
     await loadAppBootstrap();
     await syncInstallStatus();
     await loadInstances();
+    await loadDeletedInstances();
     await loadOfflineProfile();
     await loadMicrosoftAccount();
   } finally {
@@ -1536,7 +1609,7 @@ watch(
             v-for="instance in instances"
             :key="instance.id"
             class="instance-item"
-            :class="{ active: instance.id === selectedInstance?.id }"
+            :class="{ active: !showDeletedInstances && instance.id === selectedInstance?.id }"
             @click="selectInstance(instance)"
           >
             <span class="instance-mark"><FlatIcon name="instances" /></span>
@@ -1549,14 +1622,23 @@ watch(
           <div v-else-if="instancesState === 'unavailable'" class="instance-empty">桌面端读取不可用</div>
           <div v-else-if="instances.length === 0" class="instance-empty">还没有本地实例</div>
         </div>
-        <button
-          v-if="currentPage === 'home' || currentPage === 'instances'"
-          class="new-instance"
-          @click="beginAddInstance"
-        >
-          <FlatIcon name="plus" />
-          <span>添加实例</span>
-        </button>
+        <template v-if="currentPage === 'home' || currentPage === 'instances'">
+          <button class="new-instance" @click="beginAddInstance">
+            <FlatIcon name="plus" />
+            <span>添加实例</span>
+          </button>
+          <button
+            v-if="currentPage === 'instances'"
+            class="instance-recycle-link"
+            :class="{ active: showDeletedInstances }"
+            :aria-current="showDeletedInstances ? 'page' : undefined"
+            @click="showDeletedInstances = true"
+          >
+            <FlatIcon name="trash" />
+            <span>回收区</span>
+            <span v-if="deletedInstances.length" class="instance-recycle-count">{{ deletedInstances.length }}</span>
+          </button>
+        </template>
         <nav v-else class="context-links">
           <button
             v-for="item in pageContext.items"
@@ -1793,6 +1875,26 @@ watch(
       </section>
 
       <section
+        v-else-if="currentPage === 'instances' && showDeletedInstances"
+        key="instances-deleted"
+        class="content feature-page"
+      >
+        <div class="content-head">
+          <div>
+            <div class="eyebrow">实例管理</div>
+            <h1 class="page-heading">回收区</h1>
+          </div>
+        </div>
+        <DeletedInstancesPanel
+          :instances="deletedInstances"
+          :busy="deletedInstancesBusy"
+          :error="deletedInstancesError"
+          @restore="restoreDeletedInstance"
+          @remove="permanentlyDeleteInstance"
+        />
+      </section>
+
+      <section
         v-else-if="currentPage === 'instances' && selectedInstance"
         :key="`instances-${selectedInstance.id}`"
         class="content instance-page"
@@ -1809,7 +1911,7 @@ watch(
             <button class="setting-action" :disabled="instanceSaveState === 'saving'" @click="duplicateSelectedInstance">
               复制
             </button>
-            <button class="setting-action danger-action" @click="deleteSelectedInstance">删除</button>
+            <button class="setting-action danger-action" :disabled="instanceSaveState === 'saving'" @click="deleteSelectedInstance">删除</button>
             <button
               class="launch-button"
               :disabled="selectedInstance.installation.state !== 'ready' || launchState !== 'idle'"
@@ -1821,6 +1923,7 @@ watch(
             </button>
           </div>
         </div>
+        <div v-if="instanceSaveError" class="inline-error">{{ instanceSaveError }}</div>
         <div v-if="launchError" class="inline-error launch-error">
           <span>{{ launchError }}</span>
           <button
@@ -1879,6 +1982,7 @@ watch(
           <FlatIcon name="plus" />
           <span>添加实例</span>
         </button>
+        <div v-if="instanceSaveError" class="inline-error">{{ instanceSaveError }}</div>
       </section>
 
       <section

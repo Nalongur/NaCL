@@ -236,6 +236,24 @@ fn delete_instance(instance_id: String) -> Result<launcher_core::data::LauncherS
 }
 
 #[tauri::command]
+fn list_deleted_instances() -> Result<Vec<launcher_core::instance::InstanceConfig>, String> {
+    launcher_core::instance::list_deleted_instances().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn restore_instance(
+    instance_id: String,
+) -> Result<launcher_core::instance::InstanceConfig, String> {
+    launcher_core::instance::restore_instance(instance_id).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn permanently_delete_instance(instance_id: String) -> Result<(), String> {
+    launcher_core::instance::permanently_delete_instance(instance_id)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 fn list_logs() -> Result<Vec<launcher_core::logs::LogFile>, String> {
     launcher_core::logs::list_logs().map_err(|error| error.to_string())
 }
@@ -722,6 +740,9 @@ pub fn run() {
             complete_startup,
             create_instance,
             delete_instance,
+            list_deleted_instances,
+            restore_instance,
+            permanently_delete_instance,
             delete_log,
             detect_java_runtimes,
             diagnostics,

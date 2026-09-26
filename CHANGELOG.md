@@ -4,6 +4,18 @@
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [0.4.1] - 2026-09-26
+
+NaCL 0.4.1 改进实例删除的可恢复性、安全策略和下载界面的可用性。
+
+NaCL 0.4.1 improves recoverable instance deletion, production WebView security, and download UI usability.
+
+- 为生产版 WebView 配置内容安全策略，限制脚本、连接和图片来源。
+- 删除实例时先将实例与存档移入当前实例目录的 `.deleted` 回收区；支持恢复和手动彻底删除。
+- 将回收区入口移至实例导航栏，并为版本安装面板增加可滚动内容区和固定操作按钮。
+- Added a production WebView content security policy and recoverable instance deletion with restore and permanent removal controls.
+- Moved the recycle area into instance navigation and made the version-install drawer scrollable with visible actions.
+
 ## [0.4.0] - 2026-08-04
 
 NaCL 0.4.0 将模组加载器、社区内容与 Modrinth 整合包三阶段合并为首个模组支持版本，继续保留现有 NaCL 实例、下载队列和右侧抽屉交互。

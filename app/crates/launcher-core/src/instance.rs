@@ -269,6 +269,57 @@ pub fn delete_instance(instance_id: String) -> InstanceResult<LauncherSettings> 
     delete_instance_in(&paths, &instance_id)
 }
 
+pub fn list_deleted_instances() -> InstanceResult<Vec<InstanceConfig>> {
+    let paths = AppPaths::resolve()?;
+    paths.initialize()?;
+    list_deleted_instances_in(&paths)
+}
+
+pub fn restore_instance(instance_id: String) -> InstanceResult<InstanceConfig> {
+    let paths = AppPaths::resolve()?;
+    paths.initialize()?;
+    restore_instance_in(&paths, &instance_id)
+}
+
+pub fn permanently_delete_instance(instance_id: String) -> InstanceResult<()> {
+    let paths = AppPaths::resolve()?;
+    paths.initialize()?;
+    permanently_delete_instance_in(&paths, &instance_id)
+}
+
+fn deleted_instances_dir(paths: &AppPaths) -> PathBuf {
+    paths.instances_dir.join(".deleted")
+}
+
+fn verify_deleted_instances_dir(paths: &AppPaths, deleted_dir: &Path) -> InstanceResult<()> {
+    let metadata = fs::symlink_metadata(deleted_dir)
+        .map_err(|source| io_error("读取已删除实例目录", deleted_dir, source))?;
+    if !metadata.file_type().is_dir() || metadata.file_type().is_symlink() {
+        return Err(InstanceError::InvalidInstanceValue("回收区必须是真实目录"));
+    }
+    let root = fs::canonicalize(&paths.instances_dir)
+        .map_err(|source| io_error("读取实例目录", &paths.instances_dir, source))?;
+    let deleted = fs::canonicalize(deleted_dir)
+        .map_err(|source| io_error("读取已删除实例目录", deleted_dir, source))?;
+    if deleted.parent() != Some(root.as_path()) {
+        return Err(InstanceError::InvalidInstanceValue(
+            "回收区必须位于当前实例目录内",
+        ));
+    }
+    Ok(())
+}
+
+pub fn list_deleted_instances_in(paths: &AppPaths) -> InstanceResult<Vec<InstanceConfig>> {
+    let deleted_dir = deleted_instances_dir(paths);
+    if !deleted_dir.exists() {
+        return Ok(Vec::new());
+    }
+    verify_deleted_instances_dir(paths, &deleted_dir)?;
+    let mut deleted_paths = paths.clone();
+    deleted_paths.instances_dir = deleted_dir;
+    list_instances_in(&deleted_paths)
+}
+
 pub fn list_instances_in(paths: &AppPaths) -> InstanceResult<Vec<InstanceConfig>> {
     let mut instances = Vec::new();
     let entries = fs::read_dir(&paths.instances_dir)
@@ -502,19 +553,61 @@ pub fn delete_instance_in(paths: &AppPaths, instance_id: &str) -> InstanceResult
         return Err(InstanceError::InstanceNotFound(instance_id.to_owned()));
     }
 
-    let instance_dir = paths.instances_dir.join(instance_id);
-    fs::remove_dir_all(&instance_dir)
-        .map_err(|source| io_error("删除实例目录", &instance_dir, source))?;
-
     let mut settings = load_or_create_settings(paths)?;
     if settings.selected_instance_id.as_deref() == Some(instance_id) {
         settings.selected_instance_id = instances
             .iter()
             .find(|candidate| candidate.id != instance_id)
             .map(|candidate| candidate.id.clone());
-        save_settings(paths, &settings)?;
+    }
+    let instance_dir = paths.instances_dir.join(instance_id);
+    let deleted_dir = deleted_instances_dir(paths);
+    fs::create_dir_all(&deleted_dir)
+        .map_err(|source| io_error("创建已删除实例目录", &deleted_dir, source))?;
+    verify_deleted_instances_dir(paths, &deleted_dir)?;
+    let deleted_instance_dir = deleted_dir.join(instance_id);
+    if deleted_instance_dir.exists() {
+        return Err(InstanceError::InvalidInstanceValue(
+            "回收区已有相同标识的实例",
+        ));
+    }
+    fs::rename(&instance_dir, &deleted_instance_dir)
+        .map_err(|source| io_error("移动实例到回收区", &instance_dir, source))?;
+    if let Err(error) = save_settings(paths, &settings) {
+        fs::rename(&deleted_instance_dir, &instance_dir)
+            .map_err(|source| io_error("回滚实例删除", &deleted_instance_dir, source))?;
+        return Err(error.into());
     }
     Ok(settings)
+}
+
+pub fn restore_instance_in(paths: &AppPaths, instance_id: &str) -> InstanceResult<InstanceConfig> {
+    let instance = list_deleted_instances_in(paths)?
+        .into_iter()
+        .find(|instance| instance.id == instance_id)
+        .ok_or_else(|| InstanceError::InstanceNotFound(instance_id.to_owned()))?;
+    let source = deleted_instances_dir(paths).join(instance_id);
+    let destination = paths.instances_dir.join(instance_id);
+    if destination.exists() {
+        return Err(InstanceError::InvalidInstanceValue(
+            "实例目录已存在，无法恢复",
+        ));
+    }
+    fs::rename(&source, &destination)
+        .map_err(|source_error| io_error("恢复实例", &source, source_error))?;
+    Ok(instance)
+}
+
+pub fn permanently_delete_instance_in(paths: &AppPaths, instance_id: &str) -> InstanceResult<()> {
+    if !list_deleted_instances_in(paths)?
+        .iter()
+        .any(|instance| instance.id == instance_id)
+    {
+        return Err(InstanceError::InstanceNotFound(instance_id.to_owned()));
+    }
+    let source = deleted_instances_dir(paths).join(instance_id);
+    fs::remove_dir_all(&source)
+        .map_err(|source_error| io_error("彻底删除实例", &source, source_error))
 }
 
 fn unique_copy_name(paths: &AppPaths, source_name: &str) -> InstanceResult<String> {
@@ -669,10 +762,11 @@ fn valid_loader_value(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        create_instance_in, delete_instance_in, duplicate_instance_in, list_instances_in,
-        select_instance_in, update_instance_in, AdvancedSettings, CreateInstanceRequest,
-        DisplaySettings, InstallationInfo, InstanceConfig, JavaSelection, LoaderConfig,
-        MemorySettings, INSTANCE_SCHEMA_VERSION,
+        create_instance_in, delete_instance_in, duplicate_instance_in, list_deleted_instances_in,
+        list_instances_in, permanently_delete_instance_in, restore_instance_in, select_instance_in,
+        update_instance_in, AdvancedSettings, CreateInstanceRequest, DisplaySettings,
+        InstallationInfo, InstanceConfig, JavaSelection, LoaderConfig, MemorySettings,
+        INSTANCE_SCHEMA_VERSION,
     };
     use crate::data::{load_or_create_settings, AppPaths};
     use std::fs;
@@ -914,6 +1008,67 @@ mod tests {
                 .len(),
             1
         );
+
+        let deleted = list_deleted_instances_in(&paths).expect("deleted instances should list");
+        assert_eq!(deleted, vec![duplicate.clone()]);
+        assert_eq!(
+            fs::read_to_string(
+                paths
+                    .instances_dir
+                    .join(".deleted")
+                    .join(&duplicate.id)
+                    .join("game")
+                    .join("options.txt")
+            )
+            .expect("world files should remain recoverable"),
+            "guiScale:3"
+        );
+        let restored = restore_instance_in(&paths, &duplicate.id).expect("instance should restore");
+        assert_eq!(restored, duplicate);
+        assert!(list_deleted_instances_in(&paths)
+            .expect("deleted instances should list")
+            .is_empty());
+        assert!(paths
+            .instances_dir
+            .join(&duplicate.id)
+            .join("game")
+            .join("options.txt")
+            .is_file());
+
+        delete_instance_in(&paths, &duplicate.id).expect("restored instance should be deleted");
+        permanently_delete_instance_in(&paths, &duplicate.id)
+            .expect("deleted instance should be permanently removed");
+        assert!(!paths
+            .instances_dir
+            .join(".deleted")
+            .join(&duplicate.id)
+            .exists());
+
+        fs::remove_dir_all(root).expect("temporary tree should be removable");
+    }
+
+    #[test]
+    fn restore_refuses_to_overwrite_an_existing_instance_directory() {
+        let (root, paths) = temporary_paths();
+        let created = create_instance_in(
+            &paths,
+            CreateInstanceRequest {
+                name: "冲突测试".to_string(),
+                game_version: "1.21.1".to_string(),
+            },
+        )
+        .expect("instance should be created");
+        delete_instance_in(&paths, &created.id).expect("instance should move to recycle area");
+        let collision = paths.instances_dir.join(&created.id);
+        fs::create_dir(&collision).expect("collision directory should be created");
+
+        assert!(restore_instance_in(&paths, &created.id).is_err());
+        assert!(paths
+            .instances_dir
+            .join(".deleted")
+            .join(&created.id)
+            .exists());
+        assert!(collision.exists());
 
         fs::remove_dir_all(root).expect("temporary tree should be removable");
     }

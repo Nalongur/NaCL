@@ -127,7 +127,7 @@ watch(loader, () => void loadLoaderCatalog());
           </button>
         </header>
         <form
-          class="create-form"
+          class="create-form install-drawer-form"
           @submit.prevent="emit('install', {
             name: name.trim(),
             versionId: version.id,
@@ -135,6 +135,7 @@ watch(loader, () => void loadLoaderCatalog());
             loaderVersion: loader === 'vanilla' ? null : loaderVersion,
           })"
         >
+          <div class="drawer-scroll install-drawer-scroll">
           <div class="form-intro">客户端、依赖库和资源文件校验完成后，NaCL 才会创建实例。</div>
           <label class="field">
             <span class="field-label">实例名称</span>
@@ -187,7 +188,8 @@ watch(loader, () => void loadLoaderCatalog());
             </div>
           </div>
           <div v-if="error" class="form-error" role="alert">{{ error }}</div>
-          <div class="drawer-actions">
+          </div>
+          <div class="drawer-actions install-drawer-actions">
             <button type="button" class="secondary-button" @click="emit('close')">
               {{ busy ? "收起到安装队列" : "关闭" }}
             </button>
