@@ -9,8 +9,6 @@ NaCL is a minimalist Minecraft: Java Edition launcher for Windows, built with Ta
 >
 > **NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.**
 
-
-
 ## 功能 / Features
 
 - **多加载器实例**：安装并管理原版、Fabric、Quilt、Forge 与 NeoForge 隔离实例。

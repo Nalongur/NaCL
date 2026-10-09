@@ -1,6 +1,6 @@
-# Local downloads and duplicate design assets
+# Local downloads and design drafts
 /smiley-sans-v*.zip
-/design/assets/fonts/
+/design/
 
 # JavaScript
 **/node_modules/
