@@ -1,0 +1,9 @@
+{
+  "public_emails": [],
+  "private_path_prefixes": [
+    "design/"
+  ],
+  "allowed_binary_paths": [
+    "app/src-tauri/resources/aria2/aria2c.exe"
+  ]
+}

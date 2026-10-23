@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
+    "release": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build-release.ps1",
     "preview": "vite preview",
     "tauri": "tauri"
   },

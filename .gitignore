@@ -28,3 +28,27 @@ account-secrets.dat
 Thumbs.db
 *.suo
 *.sw?
+
+# Public-content boundary: local work, drafts and private configuration
+**/drafts/
+**/scratch/
+**/verification/
+**/workflow/
+**/handoff/
+**/audits/
+**/reports/
+**/_private-backups/
+**/.codex*/
+**/AGENTS.md
+**/CLAUDE.md
+**/MEMORY.md
+**/local.properties
+**/keystore.properties
+.env
+.env.*
+!.env.example
+*.pfx
+*.p12
+*.jks
+*.keystore
+*.log

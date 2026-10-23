@@ -69,8 +69,12 @@ npm.cmd run tauri dev
 
 ```powershell
 cd app
-npm.cmd run tauri -- build
+npm.cmd run release
 ```
+
+发布构建会替换编译器记录的本机目录，并在打包前检查程序是否仍包含用户目录。便携版、安装包和 MSI 输出到 `app/target/privacy-artifacts/<version>/`。
+
+Release builds remap local compiler paths and check the executable for user-directory paths before packaging. Portable, setup, and MSI files are written to `app/target/privacy-artifacts/<version>/`.
 
 ## 声明 / Disclaimer
 
