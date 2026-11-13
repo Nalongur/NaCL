@@ -37,9 +37,11 @@ NaCL/
 │  ├─ download-settings.json
 │  └─ offline-profile.json
 └─ instances/
-   └─ <instance-id>/
-      ├─ instance.json
-      └─ game/
+   ├─ <instance-id>/instance.json
+   └─ .minecraft/
+      ├─ assets/
+      ├─ libraries/
+      └─ versions/<version-name>/
 ```
 
 可重新下载或自动生成的数据位于 `%LOCALAPPDATA%\NaCL`：
@@ -48,8 +50,7 @@ NaCL/
 NaCL/
 ├─ cache/
 │  ├─ manifests/
-│  ├─ assets/
-│  ├─ libraries/
+│  ├─ versions/
 │  └─ downloads/
 ├─ runtimes/
 └─ logs/

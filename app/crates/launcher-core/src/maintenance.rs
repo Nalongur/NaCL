@@ -255,7 +255,11 @@ where
         control,
     )?;
 
-    let after_result = scan_instance_files_in(&paths, &instance);
+    let after_result = (|| {
+        let game = instance.game_path(&paths)?;
+        instance::write_version_files(&paths, &instance, &game)?;
+        scan_instance_files_in(&paths, &instance)
+    })();
     let cleanup_result = instance::delete_instance_in(&paths, &temporary.id);
     if let Some(selection) = previous_selection {
         let _ = instance::select_instance_in(&paths, &selection);
@@ -272,10 +276,7 @@ where
 pub fn analyze_instance_crash(instance_id: &str) -> Result<CrashAnalysis, MaintenanceError> {
     let paths = paths()?;
     let instance = instance_by_id(&paths, instance_id)?;
-    let root = paths
-        .instances_dir
-        .join(&instance.id)
-        .join(&instance.game_directory);
+    let root = instance.game_path(&paths)?;
     let mut candidates = Vec::new();
     collect_files(&root.join("crash-reports"), "txt", &mut candidates);
     collect_named_file(&root.join("logs").join("latest.log"), &mut candidates);
@@ -475,7 +476,7 @@ pub fn export_instance(
 ) -> Result<ExportInstanceReport, MaintenanceError> {
     let paths = paths()?;
     let instance = instance_by_id(&paths, instance_id)?;
-    let root = paths.instances_dir.join(&instance.id);
+    let root = instance.game_path(&paths)?;
     let destination = if destination.extension().and_then(|value| value.to_str()) == Some("zip") {
         destination
     } else {
@@ -517,12 +518,39 @@ fn scan_instance_files_in(
     paths: &AppPaths,
     instance: &InstanceConfig,
 ) -> Result<InstanceFileReport, MaintenanceError> {
-    let metadata_id = instance
-        .loader
-        .profile_id
-        .as_deref()
-        .unwrap_or(&instance.game_version);
-    let metadata_path = paths.versions_dir.join(format!("{metadata_id}.json"));
+    let game = instance.game_path(paths)?;
+    scan_game_files(paths, instance, &game)
+}
+
+pub(crate) fn verify_migrated_files(
+    paths: &AppPaths,
+    instance: &InstanceConfig,
+    game: &Path,
+) -> instance::InstanceResult<()> {
+    let report = scan_game_files(paths, instance, game).map_err(|error| {
+        instance::InstanceError::Io {
+            action: "校验迁移文件",
+            path: game.to_path_buf(),
+            source: io::Error::other(error.to_string()),
+        }
+    })?;
+    if let Some(issue) = report.issues.first() {
+        return Err(instance::InstanceError::Io {
+            action: "校验迁移文件",
+            path: PathBuf::from(&issue.path),
+            source: io::Error::other(issue.detail.clone()),
+        });
+    }
+    Ok(())
+}
+
+fn scan_game_files(
+    paths: &AppPaths,
+    instance: &InstanceConfig,
+    game: &Path,
+) -> Result<InstanceFileReport, MaintenanceError> {
+    let metadata_id = instance.version_name()?;
+    let metadata_path = game.join(format!("{metadata_id}.json"));
     let metadata_contents = match fs::read_to_string(&metadata_path) {
         Ok(contents) => contents,
         Err(source) if source.kind() == io::ErrorKind::NotFound => {
@@ -550,31 +578,16 @@ fn scan_instance_files_in(
     };
 
     let mut expected = HashMap::<PathBuf, ExpectedFile>::new();
-    let base_client = paths
-        .versions_dir
-        .join(format!("{}.jar", instance.game_version));
     insert_expected(
         &mut expected,
         ExpectedFile {
-            path: base_client,
+            path: game.join(format!("{metadata_id}.jar")),
             category: "client",
             sha1: metadata.downloads.client.sha1.clone(),
             size: metadata.downloads.client.size,
             repairable: metadata.downloads.client.url.starts_with("https://"),
         },
     );
-    if metadata_id != instance.game_version {
-        insert_expected(
-            &mut expected,
-            ExpectedFile {
-                path: paths.versions_dir.join(format!("{metadata_id}.jar")),
-                category: "loader-client",
-                sha1: metadata.downloads.client.sha1.clone(),
-                size: metadata.downloads.client.size,
-                repairable: true,
-            },
-        );
-    }
     for library in metadata
         .libraries
         .into_iter()
@@ -885,11 +898,14 @@ fn write_instance_archive(
 ) -> Result<(usize, u64), MaintenanceError> {
     let mut archive = zip::ZipWriter::new(temporary.as_file_mut());
     let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    let version = instance.version_name()?;
+    let version_json = format!("{version}.json");
+    let version_jar = format!("{version}.jar");
     let manifest = serde_json::to_vec_pretty(&serde_json::json!({
         "schemaVersion": 1,
         "exportedEpochMs": now_epoch_ms(),
         "instance": instance,
-        "excluded": ["game/logs", "game/crash-reports", ".nacl/natives", ".nacl/backups", ".nacl/trash"]
+        "excluded": ["PCL", version_json, version_jar, "logs", "crash-reports", ".nacl/natives", ".nacl/backups", ".nacl/trash"]
     }))
     .map_err(|source| MaintenanceError::Json {
         path: root.join("export-manifest.json"),
@@ -912,7 +928,7 @@ fn write_instance_archive(
             .path()
             .strip_prefix(root)
             .map_err(|error| MaintenanceError::Archive(error.to_string()))?;
-        if export_excluded(relative) {
+        if export_excluded(relative) || relative == Path::new(&version_json) || relative == Path::new(&version_jar) {
             continue;
         }
         let archive_path = relative.to_string_lossy().replace('\\', "/");
@@ -939,9 +955,12 @@ fn write_instance_archive(
 
 fn export_excluded(relative: &Path) -> bool {
     let value = relative.to_string_lossy().replace('\\', "/");
+    if value.split('/').next().is_some_and(|part| part.eq_ignore_ascii_case("PCL")) {
+        return true;
+    }
     [
-        "game/logs/",
-        "game/crash-reports/",
+        "logs/",
+        "crash-reports/",
         ".nacl/natives/",
         ".nacl/backups/",
         ".nacl/trash/",
@@ -1010,8 +1029,9 @@ mod tests {
 
     #[test]
     fn excludes_runtime_and_private_logs_from_exports() {
-        assert!(export_excluded(Path::new("game/logs/latest.log")));
+        assert!(export_excluded(Path::new("logs/latest.log")));
+        assert!(export_excluded(Path::new("PCL/Setup.ini")));
         assert!(export_excluded(Path::new(".nacl/natives/lwjgl.dll")));
-        assert!(!export_excluded(Path::new("game/mods/example.jar")));
+        assert!(!export_excluded(Path::new("mods/example.jar")));
     }
 }

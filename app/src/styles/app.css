@@ -2259,3 +2259,43 @@ button:focus-visible {
     justify-content: flex-end;
   }
 }
+
+.instance-menu-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+}
+
+.instance-menu {
+  position: absolute;
+  display: grid;
+  min-width: 152px;
+  max-width: calc(100vw - 8px);
+  max-height: calc(100vh - 8px);
+  overflow: auto;
+  padding: 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 8px 24px var(--scrim);
+}
+
+.instance-menu button {
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.instance-menu button:enabled:hover,
+.instance-menu button:focus-visible {
+  background: var(--surface-hover);
+}
+
+.instance-menu button:disabled {
+  color: var(--muted);
+}

@@ -7,9 +7,9 @@ $appDir = Split-Path $PSScriptRoot -Parent
 $repoDir = Split-Path $appDir -Parent
 $savedFlags = $env:CARGO_ENCODED_RUSTFLAGS
 $savedTarget = $env:CARGO_TARGET_DIR
-$userDir = [Environment]::GetFolderPath('UserProfile')
 $mappings = @(
-    @{ Path = $userDir; Replacement = '/build/home' },
+    @{ Path = $env:USERPROFILE; Replacement = '/build/home' },
+    @{ Path = [Environment]::GetFolderPath('UserProfile'); Replacement = '/build/home' },
     @{ Path = $repoDir; Replacement = '/build/project' },
     @{ Path = $env:CARGO_HOME; Replacement = '/build/cargo' },
     @{ Path = $env:RUSTUP_HOME; Replacement = '/build/rustup' },

@@ -71,6 +71,7 @@ pub struct AppPaths {
     pub cache_dir: PathBuf,
     pub manifests_dir: PathBuf,
     pub versions_dir: PathBuf,
+    pub minecraft_root: PathBuf,
     pub assets_dir: PathBuf,
     pub libraries_dir: PathBuf,
     pub downloads_dir: PathBuf,
@@ -105,8 +106,9 @@ impl AppPaths {
             instances_dir: roaming_root.join("instances"),
             manifests_dir: cache_dir.join("manifests"),
             versions_dir: cache_dir.join("versions"),
-            assets_dir: cache_dir.join("assets"),
-            libraries_dir: cache_dir.join("libraries"),
+            minecraft_root: roaming_root.join("instances").join(".minecraft"),
+            assets_dir: roaming_root.join("instances").join(".minecraft").join("assets"),
+            libraries_dir: roaming_root.join("instances").join(".minecraft").join("libraries"),
             downloads_dir: cache_dir.join("downloads"),
             runtimes_dir: local_root.join("runtimes"),
             logs_dir: local_root.join("logs"),
@@ -125,10 +127,11 @@ impl AppPaths {
             self.cache_dir = path.clone();
             self.manifests_dir = path.join("manifests");
             self.versions_dir = path.join("versions");
-            self.assets_dir = path.join("assets");
-            self.libraries_dir = path.join("libraries");
             self.downloads_dir = path.join("downloads");
         }
+        self.minecraft_root = self.instances_dir.join(".minecraft");
+        self.assets_dir = self.minecraft_root.join("assets");
+        self.libraries_dir = self.minecraft_root.join("libraries");
         self
     }
 
@@ -138,6 +141,7 @@ impl AppPaths {
             &self.instances_dir,
             &self.manifests_dir,
             &self.versions_dir,
+            &self.minecraft_root.join("versions"),
             &self.assets_dir,
             &self.libraries_dir,
             &self.downloads_dir,

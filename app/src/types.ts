@@ -74,6 +74,8 @@ export interface LauncherInstance {
     profileId?: string;
   };
   gameDirectory: string;
+  versionDirectory?: string;
+  canRollback?: boolean;
   java: { mode: "auto" } | { mode: "custom"; path: string };
   memory: {
     minimumMb: number;
@@ -156,6 +158,7 @@ export interface AppPaths {
   downloadSettingsFile: string;
   storagePathsFile: string;
   instancesDir: string;
+  minecraftRoot: string;
   localRoot: string;
   cacheDir: string;
   manifestsDir: string;

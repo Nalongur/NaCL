@@ -37,9 +37,9 @@ This notice describes the current and planned data-handling boundaries of Na Cra
 | Microsoft 账号档案 | Minecraft UUID、玩家名、官方皮肤与披风的公开资料 URL 和状态 | 显示账号并准备正版启动 | `%APPDATA%\NaCL\config\microsoft-account.json` | 保留到退出账号或手动删除 |
 | Microsoft 刷新令牌 | Microsoft 返回的长期刷新令牌，经 Windows 当前用户级 DPAPI 加密 | 应用重启后恢复登录并获取新的短期令牌 | `%APPDATA%\NaCL\config\microsoft-refresh-token.bin` | 退出账号时删除；也可手动删除 |
 | 实例元数据 | 实例名称、Minecraft 版本、内存、显示和高级参数 | 管理隔离实例 | 默认 `%APPDATA%\NaCL\instances\<instance-id>`，可自定义 | 移入回收区后保留到用户彻底删除 |
-| 实例游戏目录 | 存档、截图、配置及游戏生成的数据 | 提供实例隔离 | 实例目录下的 `<instance-id>\game`；删除后位于当前实例目录的 `.deleted\<instance-id>\game` | 移入回收区后保留到用户彻底删除 |
+| 实例游戏目录 | 存档、截图、配置及游戏生成的数据 | 提供实例隔离 | 实例目录下的 `.minecraft\versions\<version-name>`；迁移保留旧游戏目录备份，共享实例移入回收区后位于 `.deleted\<instance-id>\.shared-game` | 移入回收区后保留到用户彻底删除 |
 | 模组与内容清单 | 加载器版本、Mod/资源包/光影包文件、来源版本、哈希、启用状态和整合包索引 | 安装、校验、更新和管理模组内容 | 实例目录及其 `.nacl` 子目录 | 保留到用户移除内容或删除实例；移除文件先进入实例回收目录 |
-| 版本与资源缓存 | 版本清单、版本 JSON、客户端、依赖库、资源索引和资源对象 | 安装与校验原版文件 | 默认 `%LOCALAPPDATA%\NaCL\cache`，可自定义 | 保留到用户清理或删除 |
+| 版本与资源缓存 | 版本清单、版本 JSON、客户端、依赖库、资源索引和资源对象 | 安装与校验原版文件 | 版本缓存默认位于 `%LOCALAPPDATA%\NaCL\cache`；共享资源和依赖位于实例目录的 `.minecraft` | 保留到用户清理或删除 |
 | 托管 Java | 下载的 Eclipse Temurin JRE 及运行时信息 | 为对应游戏版本提供 Java | `%LOCALAPPDATA%\NaCL\runtimes` | 保留到用户清理或删除 |
 | 临时下载 | 下载中的 `.part` 文件及安装中间文件 | 支持下载重试和原子替换 | `%LOCALAPPDATA%\NaCL\cache\downloads` | 完成后移除；失败文件可由用户清理 |
 | 本地日志 | 启动器运行、下载、安装、游戏标准输出和错误诊断文本 | 用户本地排错 | `%LOCALAPPDATA%\NaCL\logs` | 按用户设置的保留期或手动删除 |
@@ -166,8 +166,8 @@ In the current version:
 | Microsoft account profile | Minecraft UUID, player name, and public official skin/cape URLs and states | Display the account and prepare authenticated launch | `%APPDATA%\NaCL\config\microsoft-account.json` | Until sign-out or manual deletion |
 | Microsoft refresh token | Long-lived Microsoft refresh token encrypted with Windows current-user DPAPI | Restore sign-in and obtain new short-lived tokens after restart | `%APPDATA%\NaCL\config\microsoft-refresh-token.bin` | Deleted on sign-out; may also be deleted manually |
 | Instance metadata | Instance name, Minecraft version, memory, display, and advanced arguments | Manage isolated instances | `%APPDATA%\NaCL\instances\<instance-id>` by default; customizable | Retained in the recycle area until permanently deleted |
-| Instance game directory | Worlds, screenshots, configuration, and game-generated data | Keep instances isolated | `<instance-id>\game` under the active instance directory; `.deleted\<instance-id>\game` after deletion | Retained in the recycle area until permanently deleted |
-| Version and asset cache | Version manifests, version JSON, client, libraries, asset indexes, and asset objects | Install and verify vanilla files | `%LOCALAPPDATA%\NaCL\cache` by default; customizable | Until cleaned or deleted by the user |
+| Instance game directory | Worlds, screenshots, configuration, and game-generated data | Keep instances isolated | `.minecraft\versions\<version-name>` under the instance directory. Migration retains a backup of the legacy game directory. Shared instances move to `.deleted\<instance-id>\.shared-game` in the recycle area | Retained in the recycle area until permanently deleted |
+| Version and asset cache | Version manifests, version JSON, client, libraries, asset indexes, and asset objects | Install and verify vanilla files | Version cache defaults to `%LOCALAPPDATA%\NaCL\cache`. Shared assets and libraries are under the instance directory’s `.minecraft` | Until cleaned or deleted by the user |
 | Managed Java | Downloaded Eclipse Temurin JREs and runtime information | Provide Java for compatible game versions | `%LOCALAPPDATA%\NaCL\runtimes` | Until cleaned or deleted by the user |
 | Temporary downloads | In-progress `.part` files and installation intermediates | Support retries and atomic replacement | `%LOCALAPPDATA%\NaCL\cache\downloads` | Removed on success; failed files may be cleaned by the user |
 | Local logs | Launcher, download, installation, game process output, and diagnostic text | Local troubleshooting | `%LOCALAPPDATA%\NaCL\logs` | According to the user-selected retention period or manual deletion |

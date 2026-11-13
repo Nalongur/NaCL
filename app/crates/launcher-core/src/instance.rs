@@ -8,6 +8,11 @@ use tempfile::NamedTempFile;
 use uuid::Uuid;
 
 pub const INSTANCE_SCHEMA_VERSION: u32 = 2;
+const SHARED_INSTANCE_SCHEMA_VERSION: u32 = 3;
+
+fn is_false(value: &bool) -> bool {
+    !value
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -18,6 +23,10 @@ pub struct InstanceConfig {
     pub game_version: String,
     pub loader: LoaderConfig,
     pub game_directory: PathBuf,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version_directory: Option<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub can_rollback: bool,
     pub java: JavaSelection,
     pub memory: MemorySettings,
     #[serde(default)]
@@ -357,8 +366,9 @@ pub fn list_instances_in(paths: &AppPaths) -> InstanceResult<Vec<InstanceConfig>
         if needs_migration {
             instance.schema_version = INSTANCE_SCHEMA_VERSION;
         }
-        if instance.schema_version != INSTANCE_SCHEMA_VERSION
+        if !valid_layout_schema(&instance)
             || instance.id != folder_name.to_string_lossy()
+            || !valid_version_directory(&instance)
             || !valid_loader_config(&instance.loader)
             || instance.game_directory != Path::new("game")
         {
@@ -377,6 +387,317 @@ pub fn list_instances_in(paths: &AppPaths) -> InstanceResult<Vec<InstanceConfig>
             .then_with(|| left.id.cmp(&right.id))
     });
     Ok(instances)
+}
+
+pub(crate) fn find_instance_in(paths: &AppPaths, id: &str) -> InstanceResult<InstanceConfig> {
+    list_instances_in(paths)?
+        .into_iter()
+        .find(|candidate| candidate.id == id)
+        .ok_or_else(|| InstanceError::InstanceNotFound(id.to_owned()))
+}
+
+fn safe_version_component(name: &str) -> bool {
+    !name.is_empty()
+        && !name.starts_with('.')
+        && !name.ends_with(['.', ' '])
+        && !name.chars().any(|c| c.is_control() || "<>:\\/\"|?*!;".contains(c))
+        && !matches!(
+            name.split('.').next().unwrap_or_default().trim_end().to_ascii_uppercase().as_str(),
+            "CON" | "PRN" | "AUX" | "NUL" | "COM1" | "COM2" | "COM3" | "COM4" | "COM5"
+            | "COM6" | "COM7" | "COM8" | "COM9" | "LPT1" | "LPT2" | "LPT3" | "LPT4"
+            | "LPT5" | "LPT6" | "LPT7" | "LPT8" | "LPT9" | "COM¹" | "COM²" | "COM³"
+            | "LPT¹" | "LPT²" | "LPT³" | "CONIN$" | "CONOUT$"
+        )
+}
+
+fn valid_version_directory(instance: &InstanceConfig) -> bool {
+    instance.version_directory.as_deref().is_none_or(safe_version_component)
+        && instance.id.len() == 32
+        && instance.id.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn valid_layout_schema(instance: &InstanceConfig) -> bool {
+    if instance.version_directory.is_some() {
+        instance.schema_version == SHARED_INSTANCE_SCHEMA_VERSION
+    } else {
+        instance.schema_version == INSTANCE_SCHEMA_VERSION
+    }
+}
+
+fn version_directory_name(paths: &AppPaths, name: &str) -> InstanceResult<String> {
+    let cleaned: String = name.chars().take(64).map(|c| {
+        if c.is_control() || "<>:\\/\"|?*!;".contains(c) { '_' } else { c }
+    }).collect();
+    let cleaned = cleaned.trim_matches(['.', ' ']);
+    let base = if safe_version_component(cleaned) { cleaned.to_owned() } else { format!("实例 {cleaned}").trim_end().to_owned() };
+    for suffix in 1..=999 {
+        let candidate = if suffix == 1 { base.clone() } else { format!("{base} ({suffix})") };
+        let path = paths.minecraft_root.join("versions").join(&candidate);
+        if matches!(fs::symlink_metadata(&path), Err(error) if error.kind() == io::ErrorKind::NotFound) {
+            return Ok(candidate);
+        }
+    }
+    Err(InstanceError::InvalidInstanceValue("无法分配版本目录名"))
+}
+
+impl InstanceConfig {
+    pub(crate) fn version_name(&self) -> InstanceResult<&str> {
+        self.version_directory.as_deref().filter(|name| safe_version_component(name))
+            .ok_or(InstanceError::InvalidInstanceValue("请先迁移旧实例"))
+    }
+
+    pub(crate) fn game_path(&self, paths: &AppPaths) -> InstanceResult<PathBuf> {
+        let versions = paths.minecraft_root.join("versions");
+        let path = versions.join(self.version_name()?);
+        if !fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.file_type().is_dir()) {
+        return Err(InstanceError::InvalidInstanceValue("共享游戏目录缺失或为链接"));
+    }
+    let canonical = fs::canonicalize(&path)
+            .map_err(|source| io_error("读取共享游戏目录", &path, source))?;
+        let root = fs::canonicalize(&versions)
+            .map_err(|source| io_error("读取共享版本根目录", &versions, source))?;
+        if canonical.parent() != Some(root.as_path()) || canonical.file_name() != path.file_name() || !canonical.is_dir() {
+            return Err(InstanceError::InvalidInstanceValue("共享游戏目录路径不安全"));
+        }
+        Ok(path)
+    }
+
+    pub(crate) fn cached_profile(&self) -> &str {
+        self.loader.profile_id.as_deref().unwrap_or(&self.game_version)
+    }
+}
+
+pub(crate) fn write_version_files(
+    paths: &AppPaths,
+    instance: &InstanceConfig,
+    target: &Path,
+) -> InstanceResult<()> {
+    let name = instance.version_name()?;
+    let profile = instance.cached_profile();
+    let metadata = paths.versions_dir.join(format!("{profile}.json"));
+    let raw = fs::read(&metadata).map_err(|source| io_error("读取启动配置", &metadata, source))?;
+    let mut json: serde_json::Value = serde_json::from_slice(&raw)
+        .map_err(|source| InstanceError::InvalidConfig { path: metadata.clone(), source })?;
+    let object = json.as_object_mut().ok_or_else(|| InstanceError::InvalidConfigStructure(metadata))?;
+    // NaCL's cached loader profile already contains the base game's arguments and libraries.
+    object.remove("inheritsFrom");
+    object.remove("jar");
+    object.insert("id".into(), serde_json::Value::String(name.to_owned()));
+    let client = paths.versions_dir.join(format!("{profile}.jar"));
+    let client = if client.is_file() { client } else { paths.versions_dir.join(format!("{}.jar", instance.game_version)) };
+    let jar = target.join(format!("{name}.jar"));
+    copy_file_atomically(&client, &jar)?;
+    let ini = target.join("PCL").join("Setup.ini");
+    if !ini.exists() {
+        let pcl = target.join("PCL");
+        fs::create_dir_all(&pcl).map_err(|source| io_error("创建 PCL 配置目录", &pcl, source))?;
+        fs::write(&ini, "VersionArgumentIndie:1\r\nVersionArgumentIndieV2:True\r\n")
+            .map_err(|source| io_error("设置 PCL 版本隔离", &ini, source))?;
+    }
+    let metadata = target.join(format!("{name}.json"));
+    let contents = serde_json::to_vec_pretty(&json).map_err(InstanceError::SerializeConfig)?;
+    write_atomically(&metadata, &contents)
+}
+
+fn copy_file_atomically(source: &Path, destination: &Path) -> InstanceResult<()> {
+    let mut input = fs::File::open(source).map_err(|error| io_error("读取源文件", source, error))?;
+    let mut output = NamedTempFile::new_in(destination.parent().expect("file has parent"))
+        .map_err(|error| io_error("创建暂存文件", destination, error))?;
+    io::copy(&mut input, &mut output).map_err(|error| io_error("复制文件", destination, error))?;
+    output.persist(destination).map_err(|error| io_error("提交文件", destination, error.error))?;
+    Ok(())
+}
+
+fn write_atomically(destination: &Path, contents: &[u8]) -> InstanceResult<()> {
+    let mut output = NamedTempFile::new_in(destination.parent().expect("file has parent"))
+        .map_err(|error| io_error("创建暂存文件", destination, error))?;
+    output.write_all(contents).map_err(|error| io_error("写入文件", destination, error))?;
+    output.as_file().sync_all().map_err(|error| io_error("同步文件", destination, error))?;
+    output.persist(destination).map_err(|error| io_error("提交文件", destination, error.error))?;
+    Ok(())
+}
+
+fn copy_tree(source: &Path, target: &Path, excluded: &[&Path], reuse: bool) -> InstanceResult<()> {
+    let metadata = fs::symlink_metadata(source)
+        .map_err(|error| io_error("读取复制来源", source, error))?;
+    if !metadata.is_dir() || is_link(&metadata) {
+        return Err(InstanceError::InvalidInstanceValue("复制来源必须是普通目录"));
+    }
+    for entry in walkdir::WalkDir::new(source).min_depth(1).follow_links(false).follow_root_links(false).into_iter()
+        .filter_entry(|entry| !excluded.iter().any(|path| entry.path() == *path))
+    {
+        let entry = entry.map_err(|error| io_error("读取复制来源", source, io::Error::other(error)))?;
+        let metadata = fs::symlink_metadata(entry.path())
+            .map_err(|error| io_error("读取复制来源", entry.path(), error))?;
+        if is_link(&metadata) {
+            return Err(InstanceError::InvalidInstanceValue("迁移和复制暂不支持链接或特殊文件"));
+        }
+        let relative = entry.path().strip_prefix(source).expect("entry belongs to source");
+        let destination = target.join(relative);
+        if entry.file_type().is_dir() {
+            fs::create_dir_all(&destination).map_err(|error| io_error("创建目录", &destination, error))?;
+        } else if entry.file_type().is_file() {
+            if !reuse || !destination.is_file() {
+                copy_file_atomically(entry.path(), &destination)?;
+            }
+        } else {
+            return Err(InstanceError::InvalidInstanceValue("迁移和复制暂不支持链接或特殊文件"));
+        }
+    }
+    Ok(())
+}
+
+fn is_link(metadata: &fs::Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+        metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+    }
+    #[cfg(not(windows))]
+    metadata.file_type().is_symlink()
+}
+
+pub fn migrate_instance(id: &str) -> InstanceResult<InstanceConfig> {
+    let paths = AppPaths::resolve()?;
+    paths.initialize()?;
+    migrate_instance_in(&paths, id)
+}
+
+pub fn rollback_instance(id: &str) -> InstanceResult<InstanceConfig> {
+    let paths = AppPaths::resolve()?;
+    rollback_instance_in(&paths, id)
+}
+
+fn migrate_instance_in(paths: &AppPaths, id: &str) -> InstanceResult<InstanceConfig> {
+    let mut instance = find_instance_in(paths, id)?;
+    if instance.version_directory.is_some() {
+        return Ok(instance);
+    }
+    let record = paths.instances_dir.join(id);
+    let legacy_game = record.join("game");
+    let versions = paths.minecraft_root.join("versions");
+    instance.version_directory = Some(version_directory_name(paths, &instance.name)?);
+    instance.schema_version = SHARED_INSTANCE_SCHEMA_VERSION;
+    instance.can_rollback = true;
+    let target = versions.join(instance.version_name()?);
+    let staging = tempfile::Builder::new().prefix(".nacl-").tempdir_in(&versions)
+        .map_err(|error| io_error("创建迁移暂存目录", &versions, error))?;
+    copy_tree(&legacy_game, staging.path(), &[], false)?;
+    let legacy_state = record.join(".nacl");
+    if legacy_state.is_dir() {
+        let state = staging.path().join(".nacl");
+        fs::create_dir_all(&state).map_err(|error| io_error("创建实例状态目录", &state, error))?;
+        copy_tree(&legacy_state, &state, &[&legacy_state.join("natives")], false)?;
+    }
+    if instance.installation.state == InstallationState::Ready {
+        for (source, target) in [
+            (paths.cache_dir.join("assets"), &paths.assets_dir),
+            (paths.cache_dir.join("libraries"), &paths.libraries_dir),
+        ] {
+            if source.is_dir() {
+                copy_tree(&source, target, &[], true)?;
+            }
+        }
+        write_version_files(paths, &instance, staging.path())?;
+        crate::maintenance::verify_migrated_files(paths, &instance, staging.path())?;
+    }
+    move_directory(staging.path(), &target, "发布共享版本目录")?;
+    if let Err(error) = persist_instance_config(&record, &record.join("instance.json"), &instance) {
+        fs::rename(&target, staging.path())
+            .map_err(|error| io_error("撤回共享版本目录", &target, error))?;
+        return Err(error);
+    }
+    Ok(instance)
+}
+
+fn rollback_instance_in(paths: &AppPaths, id: &str) -> InstanceResult<InstanceConfig> {
+    let mut instance = find_instance_in(paths, id)?;
+    let record = paths.instances_dir.join(id);
+    let game = record.join("game");
+    if !instance.can_rollback || instance.version_directory.is_none() {
+        return Err(InstanceError::InvalidInstanceValue("只有从旧布局迁移的实例可以回退"));
+    }
+    let shared = instance.game_path(paths)?;
+    let name = instance.version_name()?;
+    let saves = shared.join("saves");
+    let mut excluded = vec![
+        shared.join(format!("{name}.json")),
+        shared.join(format!("{name}.jar")),
+        shared.join("PCL"),
+        shared.join(".nacl"),
+    ];
+    let mut world_locks = Vec::new();
+    if saves.is_dir() {
+        for entry in fs::read_dir(&saves).map_err(|error| io_error("读取存档目录", &saves, error))? {
+            let world = entry.map_err(|error| io_error("读取存档目录", &saves, error))?;
+            if !world.file_type().map_err(|error| io_error("读取存档类型", &world.path(), error))?.is_dir() {
+                continue;
+            }
+            let path = world.path().join("session.lock");
+            match fs::OpenOptions::new().read(true).write(true).open(&path) {
+                Ok(file) => {
+                    file.try_lock().map_err(|error| io_error("锁定存档，请退出游戏后重试", &path, error.into()))?;
+                    world_locks.push(file);
+                    excluded.push(path);
+                }
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => return Err(io_error("打开存档锁", &path, error)),
+            }
+        }
+    }
+    let staging = tempfile::tempdir_in(&record)
+        .map_err(|error| io_error("创建回退暂存目录", &record, error))?;
+    let excluded: Vec<_> = excluded.iter().map(PathBuf::as_path).collect();
+    copy_tree(&shared, staging.path(), &excluded, false)?;
+    let state = record.join(".nacl");
+    let shared_state = shared.join(".nacl");
+    let staged_state = tempfile::tempdir_in(&record)
+        .map_err(|error| io_error("创建内容状态暂存目录", &record, error))?;
+    if shared_state.is_dir() {
+        copy_tree(&shared_state, staged_state.path(), &[&shared_state.join("natives")], false)?;
+    }
+    let state_backup = record.join(format!(".state-backup-{}", Uuid::new_v4().simple()));
+    let backup = record.join(format!(".legacy-backup-{}", Uuid::new_v4().simple()));
+    let backed_up = game.is_dir();
+    if backed_up {
+        move_directory(&game, &backup, "备份旧游戏目录")?;
+    }
+    let mut published = false;
+    let mut state_backed_up = false;
+    let mut state_published = false;
+    let result = (|| {
+        fs::rename(staging.path(), &game)
+            .map_err(|error| io_error("恢复旧布局的游戏目录", &game, error))?;
+        published = true;
+        if state.is_dir() {
+            move_directory(&state, &state_backup, "备份旧内容状态")?;
+            state_backed_up = true;
+        }
+        move_directory(staged_state.path(), &state, "恢复内容状态")?;
+        state_published = true;
+        instance.version_directory = None;
+        instance.schema_version = INSTANCE_SCHEMA_VERSION;
+        instance.can_rollback = false;
+        persist_instance_config(&record, &record.join("instance.json"), &instance)?;
+        Ok(instance)
+    })();
+    if result.is_err() {
+        if state_published {
+            move_directory(&state, staged_state.path(), "撤回内容状态")?;
+        }
+        if state_backed_up {
+            move_directory(&state_backup, &state, "恢复旧内容状态")?;
+        }
+        if published {
+            fs::rename(&game, staging.path())
+                .map_err(|error| io_error("撤回回退目录", &game, error))?;
+        }
+        if backed_up {
+            move_directory(&backup, &game, "恢复迁移前备份")?;
+        }
+    }
+    result
 }
 
 pub fn create_instance_in(
@@ -402,24 +723,29 @@ pub fn create_instance_in(
     }
 
     let id = Uuid::new_v4().simple().to_string();
+    let version_directory = version_directory_name(paths, name)?;
     let staging_dir = paths.instances_dir.join(format!(".create-{id}"));
     let final_dir = paths.instances_dir.join(&id);
-    let game_dir = staging_dir.join("game");
+    let game_dir = paths.minecraft_root.join("versions").join(&version_directory);
     let config_path = staging_dir.join("instance.json");
 
     fs::create_dir(&staging_dir)
         .map_err(|source| io_error("创建实例暂存目录", &staging_dir, source))?;
 
+    let mut created_game_dir = false;
     let result = (|| {
         fs::create_dir(&game_dir).map_err(|source| io_error("创建游戏目录", &game_dir, source))?;
+        created_game_dir = true;
 
         let instance = InstanceConfig {
-            schema_version: INSTANCE_SCHEMA_VERSION,
+            schema_version: SHARED_INSTANCE_SCHEMA_VERSION,
             id: id.clone(),
             name: name.to_owned(),
             game_version: game_version.to_owned(),
             loader: LoaderConfig::vanilla(),
             game_directory: PathBuf::from("game"),
+            version_directory: Some(version_directory),
+            can_rollback: false,
             java: JavaSelection::Auto,
             memory: MemorySettings {
                 minimum_mb: 1024,
@@ -447,6 +773,9 @@ pub fn create_instance_in(
     })();
 
     if result.is_err() {
+        if created_game_dir {
+            let _ = fs::remove_dir(&game_dir);
+        }
         let rollback_path = if final_dir.is_dir() {
             &final_dir
         } else {
@@ -469,6 +798,10 @@ pub fn update_instance_in(
         return Err(InstanceError::InstanceNotFound(instance.id));
     }
 
+    let current = find_instance_in(paths, &instance.id)?;
+    if instance.version_directory != current.version_directory || instance.can_rollback != current.can_rollback {
+        return Err(InstanceError::InvalidInstanceValue("实例路径已变化，请重新加载实例"));
+    }
     persist_instance_config(&instance_dir, &config_path, &instance)?;
     Ok(instance)
 }
@@ -477,53 +810,41 @@ pub fn duplicate_instance_in(
     paths: &AppPaths,
     instance_id: &str,
 ) -> InstanceResult<InstanceConfig> {
-    let source = list_instances_in(paths)?
-        .into_iter()
-        .find(|candidate| candidate.id == instance_id)
-        .ok_or_else(|| InstanceError::InstanceNotFound(instance_id.to_owned()))?;
+    let source = find_instance_in(paths, instance_id)?;
 
     let id = Uuid::new_v4().simple().to_string();
     let staging_dir = paths.instances_dir.join(format!(".create-{id}"));
     let final_dir = paths.instances_dir.join(&id);
-    let source_dir = paths.instances_dir.join(instance_id);
     fs::create_dir(&staging_dir)
         .map_err(|source| io_error("创建实例副本暂存目录", &staging_dir, source))?;
 
+    let mut published_game: Option<PathBuf> = None;
     let result = (|| {
-        for entry in walkdir::WalkDir::new(&source_dir).min_depth(1) {
-            let entry = entry.map_err(|error| {
-                io_error(
-                    "读取实例副本来源",
-                    error.path().unwrap_or(&source_dir),
-                    io::Error::other(error.to_string()),
-                )
-            })?;
-            let relative = entry.path().strip_prefix(&source_dir).map_err(|error| {
-                io_error(
-                    "解析实例副本路径",
-                    entry.path(),
-                    io::Error::other(error.to_string()),
-                )
-            })?;
-            let destination = staging_dir.join(relative);
-            if entry.file_type().is_dir() {
-                fs::create_dir_all(&destination)
-                    .map_err(|source| io_error("创建实例副本目录", &destination, source))?;
-            } else if entry.file_name() != "instance.json" {
-                fs::copy(entry.path(), &destination)
-                    .map_err(|source| io_error("复制实例文件", &destination, source))?;
-            }
-        }
-
+        let source_game = source.game_path(paths)?;
+        let source_name = source.version_name()?;
+        let source_json = source_game.join(format!("{source_name}.json"));
+        let source_jar = source_game.join(format!("{source_name}.jar"));
         let mut duplicate = source;
         duplicate.id.clone_from(&id);
+        duplicate.can_rollback = false;
         duplicate.name = unique_copy_name(paths, &duplicate.name)?;
+        duplicate.version_directory = Some(version_directory_name(paths, &duplicate.name)?);
+        let versions = paths.minecraft_root.join("versions");
+        let game_staging = tempfile::Builder::new().prefix(".nacl-").tempdir_in(&versions)
+            .map_err(|error| io_error("创建副本暂存目录", &versions, error))?;
+        copy_tree(&source_game, game_staging.path(), &[&source_json, &source_jar], false)?;
+        if duplicate.installation.state == InstallationState::Ready {
+            write_version_files(paths, &duplicate, game_staging.path())?;
+        }
+        let game_destination = versions.join(duplicate.version_name()?);
         let config_path = staging_dir.join("instance.json");
         let mut contents =
             serde_json::to_vec_pretty(&duplicate).map_err(InstanceError::SerializeConfig)?;
         contents.push(b'\n');
         fs::write(&config_path, contents)
             .map_err(|source| io_error("写入实例副本配置", &config_path, source))?;
+        move_directory(game_staging.path(), &game_destination, "完成游戏目录复制")?;
+        published_game = Some(game_destination);
         fs::rename(&staging_dir, &final_dir)
             .map_err(|source| io_error("完成实例复制", &final_dir, source))?;
 
@@ -534,6 +855,9 @@ pub fn duplicate_instance_in(
     })();
 
     if result.is_err() {
+        if let Some(game) = published_game {
+            let _ = fs::remove_dir_all(game);
+        }
         let rollback_path = if final_dir.is_dir() {
             &final_dir
         } else {
@@ -546,12 +870,8 @@ pub fn duplicate_instance_in(
 
 pub fn delete_instance_in(paths: &AppPaths, instance_id: &str) -> InstanceResult<LauncherSettings> {
     let instances = list_instances_in(paths)?;
-    if !instances
-        .iter()
-        .any(|candidate| candidate.id == instance_id)
-    {
-        return Err(InstanceError::InstanceNotFound(instance_id.to_owned()));
-    }
+    let instance = instances.iter().find(|candidate| candidate.id == instance_id)
+        .ok_or_else(|| InstanceError::InstanceNotFound(instance_id.to_owned()))?;
 
     let mut settings = load_or_create_settings(paths)?;
     if settings.selected_instance_id.as_deref() == Some(instance_id) {
@@ -571,13 +891,28 @@ pub fn delete_instance_in(paths: &AppPaths, instance_id: &str) -> InstanceResult
             "回收区已有相同标识的实例",
         ));
     }
-    fs::rename(&instance_dir, &deleted_instance_dir)
-        .map_err(|source| io_error("移动实例到回收区", &instance_dir, source))?;
-    if let Err(error) = save_settings(paths, &settings) {
-        fs::rename(&deleted_instance_dir, &instance_dir)
-            .map_err(|source| io_error("回滚实例删除", &deleted_instance_dir, source))?;
-        return Err(error.into());
+    let shared_game = instance.version_directory.as_ref()
+        .map(|_| instance.game_path(paths)).transpose()?;
+    let parked = instance_dir.join(".shared-game");
+    if let Some(game) = &shared_game {
+        move_directory(game, &parked, "移出共享游戏目录")?;
     }
+    let result: InstanceResult<()> = (|| {
+        move_directory(&instance_dir, &deleted_instance_dir, "移动实例到回收区")?;
+        if let Err(error) = save_settings(paths, &settings) {
+            move_directory(&deleted_instance_dir, &instance_dir, "撤回实例删除")?;
+            return Err(error.into());
+        }
+        Ok(())
+    })();
+    if result.is_err() {
+        if let Some(game) = &shared_game {
+            if parked.is_dir() {
+                move_directory(&parked, game, "恢复共享游戏目录")?;
+            }
+        }
+    }
+    result?;
     Ok(settings)
 }
 
@@ -593,8 +928,18 @@ pub fn restore_instance_in(paths: &AppPaths, instance_id: &str) -> InstanceResul
             "实例目录已存在，无法恢复",
         ));
     }
-    fs::rename(&source, &destination)
-        .map_err(|source_error| io_error("恢复实例", &source, source_error))?;
+    let shared_game = instance.version_directory.as_ref()
+        .map(|name| paths.minecraft_root.join("versions").join(name));
+    let parked = source.join(".shared-game");
+    if let Some(game) = &shared_game {
+        move_directory(&parked, game, "恢复共享游戏目录")?;
+    }
+    if let Err(error) = move_directory(&source, &destination, "恢复实例") {
+        if let Some(game) = &shared_game {
+            move_directory(game, &parked, "撤回共享目录恢复")?;
+        }
+        return Err(error);
+    }
     Ok(instance)
 }
 
@@ -608,6 +953,13 @@ pub fn permanently_delete_instance_in(paths: &AppPaths, instance_id: &str) -> In
     let source = deleted_instances_dir(paths).join(instance_id);
     fs::remove_dir_all(&source)
         .map_err(|source_error| io_error("彻底删除实例", &source, source_error))
+}
+
+fn move_directory(source: &Path, destination: &Path, action: &'static str) -> InstanceResult<()> {
+    if !matches!(fs::symlink_metadata(destination), Err(error) if error.kind() == io::ErrorKind::NotFound) {
+        return Err(InstanceError::InvalidInstanceValue("目标目录已经存在或无法访问"));
+    }
+    fs::rename(source, destination).map_err(|error| io_error(action, destination, error))
 }
 
 fn unique_copy_name(paths: &AppPaths, source_name: &str) -> InstanceResult<String> {
@@ -653,9 +1005,10 @@ fn io_error(action: &'static str, path: &std::path::Path, source: io::Error) -> 
 }
 
 fn validate_instance(instance: &InstanceConfig) -> InstanceResult<()> {
-    if instance.schema_version != INSTANCE_SCHEMA_VERSION
+    if !valid_layout_schema(instance)
         || !valid_loader_config(&instance.loader)
         || instance.game_directory != Path::new("game")
+        || !valid_version_directory(instance)
         || instance.id.len() != 32
         || !instance
             .id
@@ -795,6 +1148,8 @@ mod tests {
             game_version: "1.21".to_string(),
             loader: LoaderConfig::vanilla(),
             game_directory: PathBuf::from("game"),
+            version_directory: None,
+            can_rollback: false,
             java: JavaSelection::Auto,
             memory: MemorySettings {
                 minimum_mb: 1024,
@@ -825,7 +1180,7 @@ mod tests {
 
         let instance_dir = paths.instances_dir.join(&created.id);
         assert!(instance_dir.join("instance.json").is_file());
-        assert!(instance_dir.join("game").is_dir());
+        assert!(created.game_path(&paths).unwrap().is_dir());
         assert_eq!(created.game_directory, PathBuf::from("game"));
 
         let listed = list_instances_in(&paths).expect("instance should be listed");
@@ -861,6 +1216,7 @@ mod tests {
         let config_path = paths.instances_dir.join(&created.id).join("instance.json");
         let mut legacy = serde_json::to_value(&created).expect("fixture should serialize");
         legacy["schemaVersion"] = serde_json::json!(1);
+        legacy.as_object_mut().unwrap().remove("versionDirectory");
         legacy["loader"] = serde_json::json!("vanilla");
         fs::write(
             &config_path,
@@ -898,8 +1254,8 @@ mod tests {
         );
         assert!(result.is_err());
         assert_eq!(
-            fs::read_dir(&paths.instances_dir)
-                .expect("instances directory should be readable")
+            fs::read_dir(paths.minecraft_root.join("versions"))
+                .expect("versions directory should be readable")
                 .count(),
             0
         );
@@ -977,10 +1333,7 @@ mod tests {
         )
         .expect("instance should be created");
         fs::write(
-            paths
-                .instances_dir
-                .join(&created.id)
-                .join("game")
+            created.game_path(&paths).unwrap()
                 .join("options.txt"),
             "guiScale:3",
         )
@@ -989,10 +1342,7 @@ mod tests {
         let duplicate =
             duplicate_instance_in(&paths, &created.id).expect("instance should duplicate");
         assert_eq!(duplicate.name, "原版生存 副本");
-        assert!(paths
-            .instances_dir
-            .join(&duplicate.id)
-            .join("game")
+        assert!(duplicate.game_path(&paths).unwrap()
             .join("options.txt")
             .is_file());
 
@@ -1017,7 +1367,7 @@ mod tests {
                     .instances_dir
                     .join(".deleted")
                     .join(&duplicate.id)
-                    .join("game")
+                    .join(".shared-game")
                     .join("options.txt")
             )
             .expect("world files should remain recoverable"),
@@ -1028,10 +1378,7 @@ mod tests {
         assert!(list_deleted_instances_in(&paths)
             .expect("deleted instances should list")
             .is_empty());
-        assert!(paths
-            .instances_dir
-            .join(&duplicate.id)
-            .join("game")
+        assert!(duplicate.game_path(&paths).unwrap()
             .join("options.txt")
             .is_file());
 

@@ -429,7 +429,7 @@ pub fn list_project_versions(
 pub fn list_instance_content(instance_id: &str) -> Result<Vec<ManagedContent>, ContentError> {
     let paths = paths()?;
     let instance = instance_by_id(&paths, instance_id)?;
-    let root = instance_root(&paths, &instance);
+    let root = instance.game_path(&paths)?;
     let mut manifest = load_manifest(&root)?;
     let managed_paths = manifest
         .items
@@ -493,7 +493,7 @@ pub fn list_instance_content(instance_id: &str) -> Result<Vec<ManagedContent>, C
 pub fn list_instance_worlds(instance_id: &str) -> Result<Vec<WorldInfo>, ContentError> {
     let paths = paths()?;
     let instance = instance_by_id(&paths, instance_id)?;
-    let saves = instance_root(&paths, &instance).join("game").join("saves");
+    let saves = instance.game_path(&paths)?.join("saves");
     if !saves.is_dir() {
         return Ok(Vec::new());
     }
@@ -522,7 +522,7 @@ pub fn list_instance_worlds(instance_id: &str) -> Result<Vec<WorldInfo>, Content
 }
 
 fn scan_world_datapacks(root: &Path, manifest: &mut ContentManifest) -> Result<(), ContentError> {
-    let saves = root.join("game").join("saves");
+    let saves = root.join("saves");
     if !saves.is_dir() {
         return Ok(());
     }
@@ -604,7 +604,7 @@ pub fn install_content(
             "整合包必须创建新实例".to_string(),
         ));
     }
-    let root = instance_root(&paths, &instance);
+    let root = instance.game_path(&paths)?;
     let mut manifest = load_manifest(&root)?;
     let selected: ContentVersion =
         get_json(&format!("{MODRINTH_API}/version/{}", request.version_id))?;
@@ -672,7 +672,7 @@ pub fn import_local_content(
             _ => "资源包和光影包必须是 .zip 文件".to_string(),
         }));
     }
-    let root = instance_root(&paths, &instance);
+    let root = instance.game_path(&paths)?;
     let destination_directory =
         content_directory(&root, request.kind, request.world_name.as_deref())?;
     fs::create_dir_all(&destination_directory)
@@ -729,7 +729,7 @@ pub fn import_local_content(
 pub fn check_content_updates(instance_id: &str) -> Result<Vec<ContentUpdate>, ContentError> {
     let paths = paths()?;
     let instance = instance_by_id(&paths, instance_id)?;
-    let root = instance_root(&paths, &instance);
+    let root = instance.game_path(&paths)?;
     let manifest = load_manifest(&root)?;
     let mut updates = Vec::new();
     for item in manifest.items.iter().filter(|item| item.managed) {
@@ -853,7 +853,7 @@ pub fn set_content_enabled(
 ) -> Result<Vec<ManagedContent>, ContentError> {
     let paths = paths()?;
     let instance = instance_by_id(&paths, &request.instance_id)?;
-    let root = instance_root(&paths, &instance);
+    let root = instance.game_path(&paths)?;
     let mut manifest = load_manifest(&root)?;
     let item = manifest
         .items
@@ -894,7 +894,7 @@ pub fn set_content_enabled(
 pub fn remove_content(request: ContentActionRequest) -> Result<Vec<ManagedContent>, ContentError> {
     let paths = paths()?;
     let instance = instance_by_id(&paths, &request.instance_id)?;
-    let root = instance_root(&paths, &instance);
+    let root = instance.game_path(&paths)?;
     let mut manifest = load_manifest(&root)?;
     let index = manifest
         .items
@@ -1436,8 +1436,8 @@ where
     F: Fn(InstallProgress) + Sync + Send,
     C: Fn() -> InstallControl + Sync + Send,
 {
-    let root = instance_root(paths, instance);
-    let game_root = root.join("game");
+    let root = instance.game_path(paths)?;
+    let game_root = root.clone();
     let staging = root
         .join(".nacl")
         .join(format!("modpack-stage-{}", Uuid::new_v4().simple()));
@@ -1581,6 +1581,9 @@ fn extract_modpack_overrides(archive_path: &Path, staging: &Path) -> Result<(), 
             .find_map(|prefix| name.strip_prefix(prefix));
         let Some(relative) = relative else { continue };
         if relative.is_empty() {
+            continue;
+        }
+        if relative.eq_ignore_ascii_case("PCL/Setup.ini") {
             continue;
         }
         if entry
@@ -1751,10 +1754,6 @@ fn instance_by_id(paths: &AppPaths, instance_id: &str) -> Result<InstanceConfig,
         .into_iter()
         .find(|instance| instance.id == instance_id)
         .ok_or_else(|| ContentError::InstanceNotFound(instance_id.to_owned()))
-}
-
-fn instance_root(paths: &AppPaths, instance: &InstanceConfig) -> PathBuf {
-    paths.instances_dir.join(&instance.id)
 }
 
 fn enrich_mod_diagnostics(
@@ -2296,7 +2295,7 @@ fn content_directory(
             ContentError::Incompatible("安装数据包前必须选择一个存档".to_string())
         })?;
         let world_name = safe_file_name(world_name)?;
-        let world = root.join("game").join("saves").join(&world_name);
+        let world = root.join("saves").join(&world_name);
         if !world.is_dir() || !world.join("level.dat").is_file() {
             return Err(ContentError::Incompatible(format!(
                 "找不到有效存档 {world_name}"
@@ -2316,7 +2315,7 @@ fn content_directory(
         ContentKind::Modpack => "modpacks",
         ContentKind::Datapack => unreachable!(),
     };
-    Ok(root.join("game").join(name))
+    Ok(root.join(name))
 }
 
 fn disabled_content_directory(root: &Path, item: &ManagedContent) -> Result<PathBuf, ContentError> {

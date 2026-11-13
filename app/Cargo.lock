@@ -2103,7 +2103,7 @@ dependencies = [
 
 [[package]]
 name = "nacl"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "nacl-launcher-core",
  "serde",
@@ -2112,11 +2112,13 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-dialog",
  "tauri-plugin-opener",
+ "webview2-com",
+ "windows-core 0.61.2",
 ]
 
 [[package]]
 name = "nacl-launcher-core"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "base64 0.22.1",
  "md5",
