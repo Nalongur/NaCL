@@ -198,16 +198,10 @@ pub fn open_directory(
         DirectoryTarget::Logs => paths.logs_dir,
         DirectoryTarget::Cache => paths.cache_dir,
         DirectoryTarget::Downloads => paths.downloads_dir,
-        DirectoryTarget::Instances => paths.instances_dir,
+        DirectoryTarget::Instances => paths.minecraft_root,
         DirectoryTarget::Instance => {
             let id = instance_id.ok_or(SystemError::MissingInstanceId)?;
-            let exists = instance::list_instances_in(&paths)?
-                .iter()
-                .any(|candidate| candidate.id == id);
-            if !exists {
-                return Err(instance::InstanceError::InstanceNotFound(id).into());
-            }
-            paths.instances_dir.join(id).join("game")
+            instance::find_instance_in(&paths, &id)?.game_path(&paths)?
         }
     };
 

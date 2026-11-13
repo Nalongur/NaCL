@@ -573,7 +573,10 @@ where
             .map_or(0, |duration| duration.as_millis()),
     );
     let created_instance_id = instance.id.clone();
-    let instance = match instance::update_instance_in(&paths, instance) {
+    let game = instance.game_path(&paths)?;
+    let published = instance::write_version_files(&paths, &instance, &game)
+        .and_then(|()| instance::update_instance_in(&paths, instance));
+    let instance = match published {
         Ok(instance) => instance,
         Err(error) => {
             let _ = instance::delete_instance_in(&paths, &created_instance_id);

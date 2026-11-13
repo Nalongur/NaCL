@@ -35,4 +35,15 @@ function dismissStartupSplash() {
 window.addEventListener("nacl-app-ready", dismissStartupSplash, { once: true });
 window.setTimeout(dismissStartupSplash, 12_000);
 
+document.addEventListener("contextmenu", (event) => {
+  const target = event.target;
+  if (target instanceof HTMLElement) {
+    const textField = target.closest(
+      'textarea, input:not([type]), input:is([type="text"], [type="search"], [type="url"], [type="tel"], [type="email"], [type="password"], [type="number"])',
+    );
+    if (textField || target.isContentEditable) return;
+  }
+  event.preventDefault();
+});
+
 createApp(App).mount("#app");

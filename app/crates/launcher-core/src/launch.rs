@@ -387,12 +387,9 @@ fn launch_game_in(
     if instance.installation.state != InstallationState::Ready {
         return Err(LaunchError::InstanceNotReady);
     }
-    let metadata_id = instance
-        .loader
-        .profile_id
-        .as_deref()
-        .unwrap_or(&instance.game_version);
-    let metadata_path = paths.versions_dir.join(format!("{metadata_id}.json"));
+    let game_directory = instance.game_path(paths)?;
+    let metadata_id = instance.version_name()?;
+    let metadata_path = game_directory.join(format!("{metadata_id}.json"));
     if !metadata_path.is_file() {
         return Err(LaunchError::MissingVersionMetadata(metadata_path));
     }
@@ -408,14 +405,7 @@ fn launch_game_in(
         return Err(LaunchError::MissingMainClass);
     }
 
-    let profile_client_path = paths.versions_dir.join(format!("{metadata_id}.jar"));
-    let client_path = if profile_client_path.is_file() {
-        profile_client_path
-    } else {
-        paths
-            .versions_dir
-            .join(format!("{}.jar", instance.game_version))
-    };
+    let client_path = game_directory.join(format!("{metadata_id}.jar"));
     if !client_path.is_file() {
         return Err(LaunchError::MissingClient(client_path));
     }
@@ -425,9 +415,6 @@ fn launch_game_in(
         .map_or(8, |java| java.major_version);
     let java = select_java(&instance, required_java)?;
     let instance_root = paths.instances_dir.join(&instance.id);
-    let game_directory = instance_root.join(&instance.game_directory);
-    fs::create_dir_all(&game_directory)
-        .map_err(|source| io_error("创建游戏目录", &game_directory, source))?;
     let natives_directory = instance_root.join(".nacl").join("natives");
     prepare_natives(paths, &metadata.libraries, &natives_directory)?;
 

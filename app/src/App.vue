@@ -165,6 +165,9 @@ const instanceEditorOpen = ref(false);
 const instanceEditorTab = ref<InstanceTab>("overview");
 const instanceSaveState = ref<"idle" | "saving">("idle");
 const instanceSaveError = ref("");
+const instanceMenu = ref<{ instance: LauncherInstance; x: number; y: number } | null>(null);
+const instanceMenuPanel = ref<HTMLDivElement | null>(null);
+let instanceMenuTrigger: HTMLElement | null = null;
 const settingsSection = ref<SettingsSection>("general");
 const settingsSaveState = ref<"idle" | "saving">("idle");
 const settingsSaveError = ref("");
@@ -517,7 +520,9 @@ const visibleSettings = computed(() =>
     if (row.name === "实例目录" && instance) {
       return {
         ...row,
-        value: `instances\\${instance.id}\\${instance.gameDirectory}`,
+        value: instance.versionDirectory
+          ? `${appPaths.value?.minecraftRoot ?? ".minecraft"}\\versions\\${instance.versionDirectory}`
+          : "待迁移",
       };
     }
     if (row.name === "启动模式" && instance) {
@@ -596,6 +601,47 @@ function selectInstance(instance: LauncherInstance, navigateToDetails = currentP
   void invoke("select_instance", { instanceId: instance.id }).catch(() => {
     settingsBackendAvailable.value = false;
   });
+}
+
+async function showInstanceMenu(event: MouseEvent | KeyboardEvent, instance: LauncherInstance) {
+  const trigger = event.currentTarget;
+  if (!(trigger instanceof HTMLElement)) return;
+  const bounds = trigger.getBoundingClientRect();
+  const fromPointer = event instanceof MouseEvent && (event.clientX !== 0 || event.clientY !== 0);
+  const menu = {
+    instance,
+    x: fromPointer ? event.clientX : bounds.left,
+    y: fromPointer ? event.clientY : bounds.bottom,
+  };
+  instanceMenuTrigger = trigger;
+  instanceMenu.value = menu;
+  await nextTick();
+  const panel = instanceMenuPanel.value;
+  if (!panel || instanceMenu.value?.instance.id !== instance.id || instanceMenuTrigger !== trigger) return;
+  const size = panel.getBoundingClientRect();
+  instanceMenu.value.x = Math.max(4, Math.min(menu.x, window.innerWidth - size.width - 4));
+  instanceMenu.value.y = Math.max(4, Math.min(menu.y, window.innerHeight - size.height - 4));
+  panel.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
+}
+
+function closeInstanceMenu(restoreFocus = false) {
+  instanceMenu.value = null;
+  if (restoreFocus) instanceMenuTrigger?.focus();
+  instanceMenuTrigger = null;
+}
+
+function runInstanceMenuAction(action: "launch" | "settings" | "directory" | "duplicate") {
+  const instance = instanceMenu.value?.instance;
+  closeInstanceMenu(true);
+  if (!instance) return;
+  if (action === "directory") {
+    void openDirectory("instance", instance.id);
+    return;
+  }
+  selectInstance(instance, action !== "launch");
+  if (action === "launch") void startSelectedGame();
+  if (action === "settings") openInstanceEditor();
+  if (action === "duplicate") void duplicateSelectedInstance();
 }
 
 function beginAddInstance() {
@@ -970,11 +1016,12 @@ async function cleanTemporaryDownloads() {
 
 async function openDirectory(
   target: "data" | "logs" | "cache" | "downloads" | "instances" | "instance",
+  instanceId = selectedInstance.value?.id ?? null,
 ) {
   try {
     await invoke("open_directory", {
       target,
-      instanceId: target === "instance" ? selectedInstance.value?.id ?? null : null,
+      instanceId: target === "instance" ? instanceId : null,
     });
   } catch {
     // The visible page already exposes the path for manual access.
@@ -1165,6 +1212,28 @@ async function cancelInstall() {
   }
 }
 
+async function changeInstanceLayout(rollback: boolean) {
+  const instance = selectedInstance.value;
+  if (!instance || instanceSaveState.value === "saving") return;
+  const message = rollback
+    ? "请先退出 PCL 和 NaCL 中正在运行的该实例。回退会把当前游戏数据带回旧布局，PCL 中的副本将独立保存。继续？"
+    : `将“${instance.name}”迁移到 ${appPaths.value?.minecraftRoot ?? ".minecraft"}？旧游戏目录会作为备份保留。`;
+  if (!window.confirm(message)) return;
+  instanceSaveState.value = "saving";
+  instanceSaveError.value = "";
+  try {
+    const updated = await invoke<LauncherInstance>("change_instance_layout", {
+      instanceId: instance.id,
+      rollback,
+    });
+    instances.value = instances.value.map((item) => item.id === updated.id ? updated : item);
+  } catch (error) {
+    instanceSaveError.value = String(error);
+  } finally {
+    instanceSaveState.value = "idle";
+  }
+}
+
 async function duplicateSelectedInstance() {
   if (!selectedInstance.value) return;
   instanceSaveState.value = "saving";
@@ -1191,7 +1260,7 @@ async function deleteSelectedInstance() {
     instanceSaveError.value = "游戏正在运行，无法移动此实例到回收区";
     return;
   }
-  if (!window.confirm(`将实例“${instance.name}”及其存档移到回收区？之后可在实例页恢复。`)) return;
+  if (!window.confirm(`将实例“${instance.name}”及其存档移到回收区？共享目录中的 PCL 版本也会移出。`)) return;
   instanceSaveState.value = "saving";
   try {
     const settings = await invoke<LauncherSettings>("delete_instance", {
@@ -1611,6 +1680,9 @@ watch(
             class="instance-item"
             :class="{ active: !showDeletedInstances && instance.id === selectedInstance?.id }"
             @click="selectInstance(instance)"
+            @contextmenu.prevent="showInstanceMenu($event, instance)"
+            @keydown.shift.f10.prevent="showInstanceMenu($event, instance)"
+            @keydown.context-menu.prevent="showInstanceMenu($event, instance)"
           >
             <span class="instance-mark"><FlatIcon name="instances" /></span>
             <span class="instance-copy">
@@ -1908,7 +1980,9 @@ watch(
             <button class="setting-action" :disabled="maintenanceState === 'working'" @click="clearOldLogs">
               清理旧日志
             </button>
-            <button class="setting-action" :disabled="instanceSaveState === 'saving'" @click="duplicateSelectedInstance">
+            <button v-if="!selectedInstance.versionDirectory" class="setting-action" :disabled="instanceSaveState === 'saving'" @click="changeInstanceLayout(false)">迁移布局</button>
+            <button v-if="selectedInstance.canRollback" class="setting-action" :disabled="instanceSaveState === 'saving'" @click="changeInstanceLayout(true)">回退布局</button>
+            <button class="setting-action" :disabled="!selectedInstance.versionDirectory || instanceSaveState === 'saving'" @click="duplicateSelectedInstance">
               复制
             </button>
             <button class="setting-action danger-action" :disabled="instanceSaveState === 'saving'" @click="deleteSelectedInstance">删除</button>
@@ -2155,6 +2229,9 @@ watch(
                 :key="instance.id"
                 class="activity-row queue-history-row"
                 @click="selectInstance(instance)"
+                @contextmenu.prevent="showInstanceMenu($event, instance)"
+                @keydown.shift.f10.prevent="showInstanceMenu($event, instance)"
+                @keydown.context-menu.prevent="showInstanceMenu($event, instance)"
               >
                 <span class="activity-dot"></span>
                 <span class="activity-title">{{ instance.name }}</span>
@@ -2416,5 +2493,27 @@ watch(
       @close="closeLogPanel"
       @delete="deleteActiveLog"
     />
+    <Teleport to="body">
+      <div
+        v-if="instanceMenu"
+        class="instance-menu-overlay"
+        @pointerdown.self="closeInstanceMenu()"
+        @contextmenu.self.prevent="closeInstanceMenu()"
+        @keydown.esc.stop.prevent="closeInstanceMenu(true)"
+      >
+        <div
+          ref="instanceMenuPanel"
+          class="instance-menu"
+          role="group"
+          :aria-label="`实例操作 · ${instanceMenu.instance.name}`"
+          :style="{ left: `${instanceMenu.x}px`, top: `${instanceMenu.y}px` }"
+        >
+          <button type="button" :disabled="!instanceMenu.instance.versionDirectory || instanceMenu.instance.installation.state !== 'ready' || launchState !== 'idle'" @click="runInstanceMenuAction('launch')">启动</button>
+          <button type="button" :disabled="instanceSaveState === 'saving'" @click="runInstanceMenuAction('settings')">实例设置</button>
+          <button type="button" :disabled="!instanceMenu.instance.versionDirectory" @click="runInstanceMenuAction('directory')">打开游戏目录</button>
+          <button type="button" :disabled="!instanceMenu.instance.versionDirectory || instanceSaveState === 'saving'" @click="runInstanceMenuAction('duplicate')">复制实例</button>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>

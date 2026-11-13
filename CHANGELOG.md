@@ -4,6 +4,15 @@
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] - 2026-11-13
+
+- 新实例采用 PCL 可识别的 `.minecraft` 布局。现有实例支持手动迁移和回退，回退会带回最新存档和内容状态。
+- 实例右键菜单支持启动、设置、打开游戏目录和复制。文本框右键只保留常用编辑命令。
+- 实例 ZIP 导出排除 PCL 本地配置和版本启动文件。
+- New instances use a PCL-compatible `.minecraft` layout. Existing instances can be migrated manually and rolled back with current saves and content state.
+- Added instance context actions and trimmed text-field context menus to editing commands.
+- Instance ZIP exports omit local PCL settings and version launch files.
+
 ## [0.4.1] - 2026-09-26
 
 NaCL 0.4.1 改进实例删除的可恢复性、安全策略和下载界面的可用性。

@@ -224,6 +224,54 @@ fn update_instance(
 }
 
 #[tauri::command]
+async fn change_instance_layout(
+    games: tauri::State<'_, GameTaskState>,
+    installs: tauri::State<'_, InstallTaskState>,
+    content: tauri::State<'_, ContentTaskState>,
+    instance_id: String,
+    rollback: bool,
+) -> Result<launcher_core::instance::InstanceConfig, String> {
+    let (game_guard, content_guard, install_guard) = {
+    let mut running = games.0.lock().map_err(|_| "游戏进程状态不可用".to_string())?;
+    if running.contains_key(&instance_id) {
+        return Err("请先退出游戏".into());
+    }
+    installs.0.compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst)
+        .map_err(|_| "请先结束安装或修复任务".to_string())?;
+    let install_guard = InstallTaskReset(Arc::clone(&installs.0));
+    let content_guard = ContentTaskReset {
+        tasks: acquire_content_task(&content, &instance_id)?,
+        instance_id: instance_id.clone(),
+    };
+    running.insert(instance_id.clone(), 0);
+    let game_guard = LayoutGameGuard { games: Arc::clone(&games.0), id: instance_id };
+    (game_guard, content_guard, install_guard)
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        let result = if rollback {
+            launcher_core::instance::rollback_instance(&game_guard.id)
+        } else {
+            launcher_core::instance::migrate_instance(&game_guard.id)
+        };
+        drop((game_guard, content_guard, install_guard));
+        result.map_err(|error| error.to_string())
+    }).await.map_err(|error| error.to_string())?
+}
+
+struct LayoutGameGuard {
+    games: Arc<Mutex<HashMap<String, u32>>>,
+    id: String,
+}
+
+impl Drop for LayoutGameGuard {
+    fn drop(&mut self) {
+        if let Ok(mut games) = self.games.lock() {
+            games.remove(&self.id);
+        }
+    }
+}
+
+#[tauri::command]
 fn duplicate_instance(
     instance_id: String,
 ) -> Result<launcher_core::instance::InstanceConfig, String> {
@@ -720,6 +768,17 @@ pub fn run() {
             }
         })
         .setup(|app| {
+            #[cfg(target_os = "windows")]
+            if let Some(main) = app.get_webview_window("main") {
+                main.with_webview(|webview| {
+                    if let Err(error) = configure_edit_menu(&webview) {
+                        let _ = launcher_core::logs::append_launcher_log(
+                            "warn",
+                            &format!("无法配置文本编辑菜单：{error}"),
+                        );
+                    }
+                })?;
+            }
             let handle = app.handle().clone();
             std::thread::spawn(move || {
                 std::thread::sleep(std::time::Duration::from_secs(12));
@@ -746,6 +805,7 @@ pub fn run() {
             delete_log,
             detect_java_runtimes,
             diagnostics,
+            change_instance_layout,
             duplicate_instance,
             export_instance,
             get_offline_profile,
@@ -795,6 +855,38 @@ pub fn run() {
 }
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+#[cfg(target_os = "windows")]
+fn configure_edit_menu(webview: &tauri::webview::PlatformWebview) -> windows_core::Result<()> {
+    use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2_11;
+    use webview2_com::{take_pwstr, ContextMenuRequestedEventHandler};
+    use windows_core::{Interface, PWSTR};
+
+    // Tauri calls this on the thread that owns the WebView2 controller.
+    unsafe {
+        let core: ICoreWebView2_11 = webview.controller().CoreWebView2()?.cast()?;
+        let handler = ContextMenuRequestedEventHandler::create(Box::new(|_, args| {
+            let Some(args) = args else { return Ok(()) };
+            let items = args.MenuItems()?;
+            let mut count = 0;
+            items.Count(&mut count)?;
+            for index in (0..count).rev() {
+                let item = items.GetValueAtIndex(index)?;
+                let mut name = PWSTR::null();
+                item.Name(&mut name)?;
+                if !matches!(
+                    take_pwstr(name).as_str(),
+                    "undo" | "redo" | "cut" | "copy" | "paste" | "pasteAndMatchStyle" | "selectAll"
+                ) {
+                    items.RemoveValueAtIndex(index)?;
+                }
+            }
+            Ok(())
+        }));
+        core.add_ContextMenuRequested(&handler, &mut 0)?;
+    }
+    Ok(())
+}
+
 use std::sync::{Arc, Mutex};
 use tauri::{Emitter, Manager};
 
